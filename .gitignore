@@ -1,0 +1,6 @@
+node_modules/
+# Recorded output. These are large binaries regenerated on every run, and the
+# raw/ webm files are intermediates ffmpeg consumes.
+demo_videos/
+.env
+.DS_Store

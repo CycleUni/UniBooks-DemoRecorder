@@ -1,0 +1,14 @@
+{
+  "name": "unibooks-demo-recorder",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Records scripted walkthroughs of a running UniBooks deployment as showcase video",
+  "main": "record.js",
+  "scripts": {
+    "record": "node record.js",
+    "check": "node --check record.js"
+  },
+  "devDependencies": {
+    "playwright": "^1.62.1"
+  }
+}
