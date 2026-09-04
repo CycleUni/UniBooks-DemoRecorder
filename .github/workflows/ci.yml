@@ -1,0 +1,38 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+
+      # The recording itself cannot run here — it needs a deployed UniBooks,
+      # a verified demo account and ffmpeg — so this checks what can be
+      # checked without them: that the script parses, and that the only
+      # description of how to configure it stays true.
+      - name: Install
+        run: npm ci
+        env:
+          # Nothing here drives a browser; the download would be ~554MB for
+          # a job that never opens one.
+          PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
+
+      - name: Script parses
+        run: npm run check
+
+      - name: .env.example matches what the script reads
+        run: node scripts/check-env-example.js
