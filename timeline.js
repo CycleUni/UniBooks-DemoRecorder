@@ -22,6 +22,19 @@
  *          derives the true factor, warning when the two disagree badly enough
  *          that the take probably needs re-shooting rather than re-timing.
  *
+ * Two optional fields sit on top of that:
+ *
+ *   badge      A corner label held for the whole shot, naming whose screen this
+ *              is. The film follows one account through two opposite roles and
+ *              then a conversation with a second person; without a standing
+ *              marker, "who am I watching" is left to be inferred from which
+ *              page happens to be open.
+ *
+ *   highlights Not declared here — the recorder measures them. A scene calls
+ *              highlight() on the element its shot is actually about, and the
+ *              box and label are drawn over the footage at the edit. See
+ *              record.js.
+ *
  * The hints are measured, not chosen. A first pass set them by eye — 2.2 for
  * form-filling, on the theory that nobody needs to watch a course name typed
  * out — and every one of those scenes came back with less footage than its
@@ -59,28 +72,28 @@ const entries = [
 
   // ── Act one: the seller ─────────────────────────────────────────────────
   { kind: 'card', id: '06-chapter-seller', duration: 4, transition: TRANSITIONS.chapter },
-  { kind: 'scene', id: 's02_sell_isbn', duration: 10, speedHint: 1.4, transition: TRANSITIONS.chapter },
+  { kind: 'scene', id: 's02_sell_isbn', duration: 10, speedHint: 1.4, badge: '賣家視角 · Test User', transition: TRANSITIONS.chapter },
   // Money shot: an ISBN resolving into a real title, author and cover art.
   // Plays at close to real speed or it stops reading as a lookup.
-  { kind: 'scene', id: 's03_sell_autofill', duration: 7, speedHint: 1.15, transition: TRANSITIONS.page },
-  { kind: 'scene', id: 's04_sell_details', duration: 8, speedHint: 1.4, transition: TRANSITIONS.page },
-  { kind: 'scene', id: 's05_sell_publish', duration: 9, speedHint: 1.2, transition: TRANSITIONS.page },
+  { kind: 'scene', id: 's03_sell_autofill', duration: 7, speedHint: 1.15, badge: '賣家視角 · Test User', transition: TRANSITIONS.page },
+  { kind: 'scene', id: 's04_sell_details', duration: 8, speedHint: 1.4, badge: '賣家視角 · Test User', transition: TRANSITIONS.page },
+  { kind: 'scene', id: 's05_sell_publish', duration: 9, speedHint: 1.2, badge: '賣家視角 · Test User', transition: TRANSITIONS.page },
 
   // ── Act two: the buyer ──────────────────────────────────────────────────
   { kind: 'card', id: '07-chapter-buyer', duration: 4, transition: TRANSITIONS.chapter },
-  { kind: 'scene', id: 's06_search', duration: 9, speedHint: 1.4, transition: TRANSITIONS.chapter },
-  { kind: 'scene', id: 's07_book_detail', duration: 8, speedHint: 1.3, transition: TRANSITIONS.page },
+  { kind: 'scene', id: 's06_search', duration: 9, speedHint: 1.4, badge: '買家視角 · Test User', transition: TRANSITIONS.chapter },
+  { kind: 'scene', id: 's07_book_detail', duration: 8, speedHint: 1.3, badge: '買家視角 · Test User', transition: TRANSITIONS.page },
   // Money shot: the seller's reply arrives in the buyer's open window with no
   // reload. Slowing this down would throw away the only evidence of it.
-  { kind: 'scene', id: 's08_chat', duration: 12, speedHint: 1.3, transition: TRANSITIONS.page },
-  { kind: 'scene', id: 's09_meetup', duration: 8, speedHint: 1.3, transition: TRANSITIONS.page },
-  { kind: 'scene', id: 's10_order_loop', duration: 9, speedHint: 1.2, transition: TRANSITIONS.page },
+  { kind: 'scene', id: 's08_chat', duration: 12, speedHint: 1.3, badge: '買家視角 · Test User', transition: TRANSITIONS.page },
+  { kind: 'scene', id: 's09_meetup', duration: 8, speedHint: 1.3, badge: '買家視角 · Test User', transition: TRANSITIONS.page },
+  { kind: 'scene', id: 's10_order_loop', duration: 9, speedHint: 1.2, badge: '買家視角 · Test User', transition: TRANSITIONS.page },
 
   // ── Act three: what makes it a platform ─────────────────────────────────
   { kind: 'card', id: '08-chapter-platform', duration: 4, transition: TRANSITIONS.chapter },
-  { kind: 'scene', id: 's11_verified', duration: 6, speedHint: 1.2, transition: TRANSITIONS.chapter },
+  { kind: 'scene', id: 's11_verified', duration: 7, speedHint: 1.2, transition: TRANSITIONS.chapter },
   { kind: 'scene', id: 's12_waitlist', duration: 7, speedHint: 1.3, transition: TRANSITIONS.page },
-  { kind: 'scene', id: 's13_theme_lang', duration: 8, speedHint: 1.2, transition: TRANSITIONS.page },
+  { kind: 'scene', id: 's13_theme_lang', duration: 12, speedHint: 1.3, transition: TRANSITIONS.page },
 
   // ── Close ───────────────────────────────────────────────────────────────
   { kind: 'card', id: '09-tech', duration: 9, transition: TRANSITIONS.chapter },

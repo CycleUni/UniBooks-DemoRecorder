@@ -21,8 +21,9 @@ Written to `DEMO_OUTPUT_DIR` (default `./demo_videos`):
 | Path | What it is |
 |---|---|
 | `unibooks_showcase.mp4` | The film. 1920×1080, 30fps, silent, about 2:31 |
-| `scenes/*.mp4` + `scenes.json` | One take per scene, and where each one's performance starts |
+| `scenes/*.mp4` + `scenes.json` | One take per scene, where each performance starts, and the boxes it asked to highlight |
 | `cards/*.png` | The title cards, rasterised |
+| `overlays/*.png` | Corner badges and highlight boxes, transparent |
 | `raw/`, `work/` | Playwright's webm output and per-clip intermediates |
 
 Everything under `demo_videos/` is gitignored and regenerated on every run.
@@ -39,14 +40,42 @@ ugly setup phase, calls `mark()`, then performs; the offset `mark()` records is
 trimmed off at the edit, so putting the app into position never reaches the
 cut.
 
+**`render-overlays.js` draws what goes on top.** A corner badge for every scene
+that declares one, and a box-and-caption for every `highlight()` the recorder
+made. It runs *after* recording, not with the cards: a highlight is positioned
+from the box the browser actually laid out, and coordinates written down in
+advance are how a box ends up framing empty space.
+
 **`build-video.js` cuts.** Normalises every entry into a clip of exactly its
 slot length — stills held with a slow push, takes trimmed past their setup and
-sped up to fit — then joins them with a single xfade chain.
+sped up to fit — composites the overlays onto it, then joins everything with a
+single xfade chain.
 
 The speed applied to a take is measured, not chosen: footage length ÷ slot
 length. `speedHint` in the timeline only tells the scene roughly how much to
 shoot, and the builder warns when the two disagree far enough that the take
 wants re-shooting rather than re-timing.
+
+## Badges and highlights
+
+Two things are drawn over the footage, both declared close to where they are
+decided.
+
+A **badge** is a corner label naming whose screen this is, set per scene in
+`timeline.js`. The film follows one account through two opposite roles and then
+a conversation with a second person; without a standing marker, which of them
+you are watching is left to be inferred from whichever page happens to be open.
+
+A **highlight** is a box and a caption around the one control a shot is about.
+Scenes ask for them by calling `highlight(selector, label)`, which rests the
+cursor there, measures the element and records the moment. The last act needs
+them: an email binding, a waitlist subscription, a theme and language switch
+are each a small piece of a full page, and seven seconds is not long enough to
+find them unaided.
+
+Captions get a floor on their time on screen (`MIN_CAPTION_SECONDS`). A hold is
+divided by the speed factor along with everything else, so three seconds of
+resting becomes two seconds of reading at 1.5x — not enough for a sentence.
 
 ## The cards are HTML
 
@@ -89,8 +118,12 @@ npm run cards                        # re-rasterise the title cards
 npm run record                       # clean up, then shoot all thirteen scenes
 npm run record -- s08_chat           # re-shoot one, leaving the others alone
 npm run record -- --clean s08_chat   # ...and clear the data the last take left
+npm run overlays                     # re-draw badges and highlights
 npm run build                        # re-cut from whatever is in scenes/
 ```
+
+Re-shooting a scene invalidates its highlights, so `overlays` has to run again
+before `build` — otherwise the box is drawn where the element used to be.
 
 ## Before a shoot: hide the load-test fixture
 

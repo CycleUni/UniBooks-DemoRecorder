@@ -68,8 +68,57 @@ function probeDuration(file) {
   return seconds;
 }
 
-/** Shared tail of every clip filter: lock format so xfade can join them. */
-const NORMALISE = `fps=${FPS},scale=${W}:${H}:flags=lanczos,setsar=1,format=yuv420p`;
+/**
+ * Shared tail of every clip filter: lock geometry and format so xfade can join
+ * them. The pixel format is applied separately, at the very end of a chain,
+ * because anything overlaid on top arrives as RGBA and converting twice costs
+ * a generation of colour for nothing.
+ */
+const GEOMETRY = `fps=${FPS},scale=${W}:${H}:flags=lanczos,setsar=1`;
+const NORMALISE = `${GEOMETRY},format=yuv420p`;
+
+/** How long a caption is given on screen, however briefly the take held it. */
+const MIN_CAPTION_SECONDS = 2.4;
+/** Fade in and out of every highlight, so nothing pops. */
+const OVERLAY_FADE = 0.35;
+
+/**
+ * Place a recorded highlight on the cut's timeline.
+ *
+ * The recorder measures in raw seconds since its context opened; the clip that
+ * reaches the film has had its setup trimmed off and has been sped up. Both
+ * have to be undone to know when the box should appear.
+ *
+ * The minimum is the reason this is not a straight conversion. A caption is
+ * held for as long as the take rested on the element, and that hold gets
+ * divided by the speed factor along with everything else — so a three-second
+ * pause becomes two seconds on screen at 1.5x, which is not long enough to
+ * read a sentence. Extending forward is safe: the take is still resting on the
+ * same element for a moment afterwards.
+ */
+function placeHighlights(highlights, { markIn, speed, duration }) {
+  const placed = [];
+
+  for (const h of highlights) {
+    let start = (h.startRaw - markIn) / speed;
+    let end = (h.endRaw - markIn) / speed;
+    if (start >= duration) continue;
+
+    start = Math.max(0, start);
+    end = Math.max(end, start + MIN_CAPTION_SECONDS);
+    end = Math.min(end, duration);
+    if (end - start < 0.5) continue;
+
+    placed.push({ ...h, start, end });
+  }
+
+  // Two boxes on screen at once would each be dimming the other's target.
+  for (let i = 0; i < placed.length - 1; i++) {
+    placed[i].end = Math.min(placed[i].end, placed[i + 1].start - 0.15);
+  }
+
+  return placed.filter((h) => h.end - h.start >= 0.5);
+}
 
 /**
  * A card clip.
@@ -139,18 +188,67 @@ function buildSceneClip(entry, manifest) {
   );
 
   const out = path.join(cfg.WORK_DIR, `${entry.id}.mp4`);
-  const filter =
-    `trim=start=${markIn.toFixed(3)},setpts=PTS-STARTPTS,` +
+
+  const base =
+    `[0:v]trim=start=${markIn.toFixed(3)},setpts=PTS-STARTPTS,` +
     `setpts=PTS/${speed.toFixed(6)},` +
-    `${NORMALISE},` +
+    `${GEOMETRY},` +
     // Second trim is the one that guarantees the slot length: rounding in the
     // speed change can leave a few frames either side, and xfade offsets are
     // computed from the timeline, not from what the encoder happened to emit.
     `trim=duration=${entry.duration},setpts=PTS-STARTPTS`;
 
+  const overlays = [];
+  if (entry.badge) {
+    const png = path.join(cfg.OVERLAY_DIR, `badge-${entry.id}.png`);
+    if (!fs.existsSync(png)) {
+      throw new Error(`${entry.id} declares a badge but ${png} is missing — run \`npm run overlays\`.`);
+    }
+    // No fade: the badge is meant to stand through a whole act, and fading it
+    // at every cut would make it blink between shots of the same act.
+    overlays.push({ png, filter: 'format=rgba' });
+  }
+
+  const placed = placeHighlights(record.highlights || [], {
+    markIn,
+    speed,
+    duration: entry.duration,
+  });
+  placed.forEach((h, i) => {
+    const png = path.join(cfg.OVERLAY_DIR, `highlight-${entry.id}-${i}.png`);
+    if (!fs.existsSync(png)) {
+      throw new Error(`${entry.id} recorded a highlight but ${png} is missing — run \`npm run overlays\`.`);
+    }
+    const fade = Math.min(OVERLAY_FADE, (h.end - h.start) / 3);
+    overlays.push({
+      png,
+      // The alpha envelope is the whole schedule: zero before the box is due,
+      // zero after, so no `enable` expression is needed to hide it.
+      filter:
+        `format=rgba,` +
+        `fade=in:st=${h.start.toFixed(3)}:d=${fade.toFixed(3)}:alpha=1,` +
+        `fade=out:st=${(h.end - fade).toFixed(3)}:d=${fade.toFixed(3)}:alpha=1`,
+    });
+    console.log(`    ↳ "${h.label.split('　　')[0]}" ${h.start.toFixed(1)}s–${h.end.toFixed(1)}s`);
+  });
+
+  const steps = [`${base}[base]`];
+  let label = 'base';
+  overlays.forEach((o, i) => {
+    const src = `${i + 1}:v`;
+    steps.push(`[${src}]${o.filter}[o${i}]`);
+    steps.push(`[${label}][o${i}]overlay=0:0:format=auto[v${i}]`);
+    label = `v${i}`;
+  });
+  steps.push(`[${label}]format=yuv420p[out]`);
+
+  const inputs = ['-i', record.file];
+  for (const o of overlays) inputs.push('-loop', '1', '-t', String(entry.duration), '-i', o.png);
+
   encode([
-    '-y', '-i', record.file,
-    '-vf', filter,
+    '-y', ...inputs,
+    '-filter_complex', steps.join(';'),
+    '-map', '[out]',
     '-c:v', 'libx264', '-preset', 'medium', '-crf', '18', '-an',
     out,
   ]);

@@ -8,9 +8,10 @@
     "film": "node --env-file-if-exists=.env film.js",
     "cards": "node --env-file-if-exists=.env render-cards.js",
     "record": "node --env-file-if-exists=.env record.js",
+    "overlays": "node --env-file-if-exists=.env render-overlays.js",
     "build": "node --env-file-if-exists=.env build-video.js",
     "stage": "node --env-file-if-exists=.env scripts/stage-data.js",
-    "check": "node --check record.js && node --check build-video.js && node --check render-cards.js && node --check timeline.js && node --check film.js && node --check lib/pointer.js && node --check lib/config.js && node --check scripts/stage-data.js && node --check scripts/check-env-example.js"
+    "check": "node --check record.js && node --check build-video.js && node --check render-cards.js && node --check timeline.js && node --check film.js && node --check lib/pointer.js && node --check lib/config.js && node --check scripts/stage-data.js && node --check scripts/check-env-example.js && node --check render-overlays.js"
   },
   "devDependencies": {
     "playwright": "^1.62.1"

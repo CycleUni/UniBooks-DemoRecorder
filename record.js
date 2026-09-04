@@ -126,9 +126,51 @@ async function shoot(browser, entry) {
     markedAt = (Date.now() - startedAt) / 1000;
   };
 
+  /**
+   * Rest on an element and record where it was, so the edit can draw a box
+   * around it and caption what it is.
+   *
+   * The last act shows three mechanisms — an email binding, a waitlist
+   * subscription, a theme and language switch — and each of them is a small
+   * piece of a full page. Seven seconds is not enough for a viewer to find
+   * them unaided, and the scenes were read as "some settings screens".
+   *
+   * The measuring has to happen here rather than being written down in the
+   * timeline: the box depends on where the browser actually laid the element
+   * out, and hard-coded coordinates would silently drift off target the first
+   * time a font or a container width changed. Times are recorded raw, in
+   * seconds since the context opened; build-video.js maps them onto the cut
+   * once it knows the trim and the speed.
+   */
+  const highlights = [];
+  const highlight = async (target, label, { hold = 2800, steps = 22 } = {}) => {
+    const locator = typeof target === 'string' ? page.locator(target).first() : target;
+    if ((await locator.count()) === 0) {
+      console.warn(`  ⚠️  nothing matched "${target}" to highlight; holding without a box`);
+      await page.waitForTimeout(hold);
+      return false;
+    }
+    await locator.scrollIntoViewIfNeeded().catch(() => {});
+    await page.waitForTimeout(400);
+
+    // Measured after the scroll settles and before the hold, which is the only
+    // window in which the element is both in its final position and not moving.
+    const box = await locator.boundingBox();
+    if (!box) {
+      await page.waitForTimeout(hold);
+      return false;
+    }
+
+    await P.moveTo(page, { x: box.x + box.width / 2, y: box.y + box.height / 2 }, { steps });
+    const startRaw = (Date.now() - startedAt) / 1000;
+    await page.waitForTimeout(hold);
+    highlights.push({ label, box, startRaw, endRaw: (Date.now() - startedAt) / 1000 });
+    return true;
+  };
+
   let failure = null;
   try {
-    await scene({ page, context, browser, mark });
+    await scene({ page, context, browser, mark, highlight });
   } catch (err) {
     // A broken scene should not cost the twelve that work. Keep the partial
     // footage — it is usually the fastest way to see what moved.
@@ -147,7 +189,14 @@ async function shoot(browser, entry) {
   const markIn = markedAt === null ? 0 : markedAt;
   console.log(`  ✓ ${path.basename(out)}  (performance starts at ${markIn.toFixed(1)}s)`);
 
-  return { id: entry.id, file: out, markIn, failed: !!failure, error: failure ? failure.message : null };
+  return {
+    id: entry.id,
+    file: out,
+    markIn,
+    highlights,
+    failed: !!failure,
+    error: failure ? failure.message : null,
+  };
 }
 
 // ─────────────────────────────────────────────────────────── shared set-ups
@@ -519,44 +568,56 @@ const SCENES = {
    * panel names the bound .edu.tw address and the moment it was checked, which
    * is the mechanism the claim actually rests on.
    */
-  async s11_verified({ page, mark }) {
+  async s11_verified({ page, mark, highlight }) {
     await page.goto(cfg.regionUrl('/account/settings'), { waitUntil: 'domcontentloaded' });
     await page.locator('.verify-section').waitFor({ timeout: 25000 });
+    await page.waitForLoadState('networkidle').catch(() => {});
     await mark();
 
-    await P.restOn(page, '.verify-section .alert-box', { hold: 2600 });
-    await P.moveTo(page, '.verify-section .alert-box p', { steps: 20, settle: 2200 });
-    await P.smoothScroll(page, 140, { steps: 18 });
-    await page.waitForTimeout(1800);
+    await page.waitForTimeout(1200);
+    await highlight(
+      '.verify-section .alert-box',
+      '校園信箱驗證　　學校身分綁定 .edu.tw 信箱，不是自己填的',
+      { hold: 3000 },
+    );
+    await P.moveTo(page, '.verify-section .alert-box p', { steps: 20, settle: 2000 });
   },
 
   /** Nobody selling it yet is a state the platform has an answer for. */
-  async s12_waitlist({ page, mark }) {
+  async s12_waitlist({ page, mark, highlight }) {
     await page.goto(`${cfg.regionUrl('/book')}?isbn=${cfg.BUY.waitlistIsbn}`, {
       waitUntil: 'domcontentloaded',
     });
     await page.locator('.waitlist-banner').waitFor({ timeout: 25000 });
+    await page.waitForLoadState('networkidle').catch(() => {});
     await mark();
 
-    await P.moveTo(page, '.listings-section .section-heading', { steps: 22, settle: 1800 });
-    await P.restOn(page, '.waitlist-count', { hold: 2200 });
-    await P.clickAt(page, '.waitlist-banner ui-button button', { settle: 3200 });
+    // The empty state first, so the banner reads as an answer to it.
+    await P.moveTo(page, '.listings-section .section-heading', { steps: 22, settle: 1600 });
+    await highlight(
+      '.waitlist-banner',
+      '沒人賣的書　　訂閱到貨通知，有人上架就通知你',
+      { hold: 3000 },
+    );
+    await P.clickAt(page, '.waitlist-banner ui-button button', { settle: 2800 });
   },
 
   /** Read at night, read in three languages. */
-  async s13_theme_lang({ page, mark }) {
+  async s13_theme_lang({ page, mark, highlight }) {
     await page.goto(cfg.regionUrl('/'), { waitUntil: 'domcontentloaded' });
     await page.locator('.hero-search').waitFor({ timeout: 25000 });
     await page.waitForLoadState('networkidle').catch(() => {});
     await mark();
 
+    await highlight('.theme-dropdown', '深色模式　　整站主題，記在這個瀏覽器裡', { hold: 2600 });
     await P.clickAt(page, '.theme-dropdown .theme-icon-wrap', { settle: 700 });
     const dark = page.locator('[role="option"], .dropdown-option', { hasText: /深色|Dark/ }).first();
-    if (await dark.count()) await P.clickAt(page, dark, { settle: 2200 });
+    if (await dark.count()) await P.clickAt(page, dark, { settle: 2400 });
 
     await P.smoothScroll(page, 200, { steps: 20 });
-    await page.waitForTimeout(1200);
+    await page.waitForTimeout(800);
 
+    await highlight('ui-prefs-selector', '三個語系　　繁中・港中・英文，各自帶自己的地區', { hold: 2600 });
     await P.clickAt(page, 'ui-prefs-selector .lang-icon-wrap', { settle: 700 });
     const english = page.locator('[role="option"], .dropdown-option', { hasText: /English/ }).first();
     if (await english.count()) await P.clickAt(page, english, { settle: 2400 });

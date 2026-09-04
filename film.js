@@ -10,9 +10,13 @@
 const { execFileSync } = require('child_process');
 const path = require('path');
 
+// Overlays come after recording, not with the cards: a highlight is drawn
+// around a box the recorder measured, so it cannot be drawn until there is a
+// recording to measure.
 const steps = [
   ['Rendering title cards', 'render-cards.js'],
   ['Recording scenes', 'record.js'],
+  ['Drawing overlays', 'render-overlays.js'],
   ['Cutting the film', 'build-video.js'],
 ];
 
