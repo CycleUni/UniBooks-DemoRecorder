@@ -1,0 +1,153 @@
+<!doctype html>
+<html lang="zh-TW">
+<head>
+  <meta charset="utf-8">
+  <title>UniBooks - 09 Tech</title>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700&family=Noto+Serif+TC:wght@700&display=swap');
+
+    :root {
+      --ink: #1F2933;
+      --ink-soft: #4A555F;
+      --paper: #FFFFFF;
+      --paper-warm: #F7F5F0;
+      --line: #D9D4CB;
+      --line-strong: #948A76;
+      --accent: #1E5C46;
+      --accent-soft: #E7F0EA;
+      --brand-warm: #C8763F;
+      --brand-warm-soft: #FBF0E4;
+      --muted: #647079;
+      --flag: #A34A2A;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      width: 1920px;
+      height: 1080px;
+      overflow: hidden;
+      background-color: var(--paper-warm);
+      background-image: repeating-linear-gradient(
+        to bottom,
+        transparent 0 13px,
+        rgba(148, 138, 118, 0.15) 13px 14px
+      );
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      padding: 96px 160px;
+    }
+
+    .header {
+      display: flex;
+      align-items: center;
+    }
+
+    .title {
+      font-family: 'Noto Serif TC', serif;
+      font-weight: 700;
+      font-size: 56px;
+      color: var(--accent);
+      letter-spacing: -0.01em;
+      line-height: 1.2;
+    }
+
+    .matrix {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      border-top: 1px solid var(--line);
+      border-bottom: 1px solid var(--line);
+    }
+
+    .cell {
+      padding: 40px 48px 40px 0;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    .cell-tl {
+      border-right: 1px solid var(--line);
+      border-bottom: 1px solid var(--line);
+    }
+
+    .cell-tr {
+      padding-left: 48px;
+      padding-right: 0;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .cell-bl {
+      border-right: 1px solid var(--line);
+    }
+
+    .cell-br {
+      padding-left: 48px;
+      padding-right: 0;
+    }
+
+    .cell-label {
+      font-family: 'Noto Sans TC', -apple-system, 'PingFang TC', sans-serif;
+      font-size: 18px;
+      font-weight: 700;
+      color: var(--ink-soft);
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+
+    .cell-val {
+      font-family: 'Noto Sans TC', -apple-system, 'PingFang TC', sans-serif;
+      font-size: 28px;
+      font-weight: 500;
+      color: var(--ink);
+      line-height: 1.4;
+    }
+
+    .footer {
+      display: flex;
+      align-items: center;
+    }
+
+    .footer-highlight {
+      font-family: 'Noto Sans TC', -apple-system, 'PingFang TC', sans-serif;
+      font-size: 24px;
+      font-weight: 700;
+      color: var(--brand-warm);
+      letter-spacing: 0.08em;
+    }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <h1 class="title">把它做完，而不只是做出來</h1>
+  </div>
+
+  <div class="matrix">
+    <div class="cell cell-tl">
+      <div class="cell-label">前端</div>
+      <div class="cell-val">Angular 22．PWA．深色模式．三語系</div>
+    </div>
+    <div class="cell cell-tr">
+      <div class="cell-label">後端</div>
+      <div class="cell-val">Django 6．REST．JWT 白名單</div>
+    </div>
+    <div class="cell cell-bl">
+      <div class="cell-label">即時通訊</div>
+      <div class="cell-val">Cloudflare Workers 邊緣運算</div>
+    </div>
+    <div class="cell cell-br">
+      <div class="cell-label">無障礙</div>
+      <div class="cell-val">WCAG AA 對比全數達標</div>
+    </div>
+  </div>
+
+  <div class="footer">
+    <div class="footer-highlight">校園信箱驗證　·　雙向評價　·　面交 0 抽成</div>
+  </div>
+</body>
+</html>

@@ -1,11 +1,11 @@
 # UniBooks-DemoRecorder
 
-Records scripted walkthroughs of a **running** UniBooks deployment and stitches
-them into a showcase video.
+Records scripted walkthroughs of a **running** UniBooks deployment and cuts
+them, with title cards, into a showcase film.
 
 It drives a real browser with Playwright, overlays a synthetic cursor so the
-interaction reads as deliberate rather than instantaneous, and converts each
-clip to mp4 with ffmpeg.
+interaction reads as deliberate rather than instantaneous, rasterises a set of
+HTML title cards, and assembles the lot with ffmpeg.
 
 ## This is not a test suite
 
@@ -18,42 +18,104 @@ evidence that anything works.
 
 Written to `DEMO_OUTPUT_DIR` (default `./demo_videos`):
 
-| File | Flow |
+| Path | What it is |
 |---|---|
-| `01_login_and_sell.mp4` | Sign in, verify as a student, list a book |
-| `02_search_chat_meetup_order.mp4` | Search, open a book, chat, arrange a meetup, order |
-| `unibooks_master_showcase.mp4` | The two above concatenated |
+| `unibooks_showcase.mp4` | The film. 1920×1080, 30fps, silent, about 2:31 |
+| `scenes/*.mp4` + `scenes.json` | One take per scene, and where each one's performance starts |
+| `cards/*.png` | The title cards, rasterised |
+| `raw/`, `work/` | Playwright's webm output and per-clip intermediates |
 
-`raw/` holds the webm files Playwright writes, which ffmpeg reads. Both
-directories are gitignored — they are regenerated on every run.
+Everything under `demo_videos/` is gitignored and regenerated on every run.
+
+## The three moving parts
+
+**`timeline.js` is the edit.** One list of what appears, in what order, for how
+long, and how each piece enters. The recorder reads it to know what to shoot;
+the builder reads it to know how to assemble. Change the film here.
+
+**`record.js` shoots the takes.** One browser context per scene, so a scene can
+be re-shot alone and each can be paced separately. Every scene runs a fast,
+ugly setup phase, calls `mark()`, then performs; the offset `mark()` records is
+trimmed off at the edit, so putting the app into position never reaches the
+cut.
+
+**`build-video.js` cuts.** Normalises every entry into a clip of exactly its
+slot length — stills held with a slow push, takes trimmed past their setup and
+sped up to fit — then joins them with a single xfade chain.
+
+The speed applied to a take is measured, not chosen: footage length ÷ slot
+length. `speedHint` in the timeline only tells the scene roughly how much to
+shoot, and the builder warns when the two disagree far enough that the take
+wants re-shooting rather than re-timing.
+
+## The cards are HTML
+
+`cards/*.html`, rasterised by `render-cards.js`. Two reasons they are not drawn
+by ffmpeg: the local ffmpeg is built without libfreetype, so `drawtext` does
+not exist — and, more to the point, writing them as web pages lets them inherit
+the product's own design tokens. Same deep green, same kraft amber, same Noto
+Serif TC, same ruled book-board ground as the app they introduce. Colours are
+copied from `UniBooks-FE/src/styles.css`; if that palette changes, change them
+here too.
+
+Nothing in a card animates. Movement is added at the edit, so a card and a
+screen recording can be crossfaded as two clips of known length.
 
 ## Prerequisites
 
 - **The app running and reachable** at `DEMO_BASE_URL` (default
-  `http://localhost:4200`), with its backend and CFEdgeChat up. The repository
-  root of the UniBooks umbrella has a `docker-compose.yml` that brings up the
-  whole set.
-- **ffmpeg** on `PATH`, or `FFMPEG_BIN` pointing at it.
-- **A verified demo account** already present in the target database, matching
-  `DEMO_EMAIL` / `DEMO_PASSWORD`. The sell flow cannot run without student
-  verification.
+  `http://localhost:4200`), with its backend and CFEdgeChat up.
+- **ffmpeg and ffprobe** on `PATH`, or `FFMPEG_BIN` / `FFPROBE_BIN` pointing at
+  them.
+- **Two accounts in the target database**: `DEMO_EMAIL`, verified in
+  `DEMO_REGION` (the sell and chat flows both refuse to run otherwise), and
+  `DEMO_SELLER_EMAIL`, who must be the seller of the listing
+  `DEMO_TARGET_ISBN` resolves to.
+- **Seeded catalogue data** matching the defaults in `.env.example` — the book
+  that gets listed, the one that gets bought, and one nobody is selling.
 
 ## Running it
 
 ```bash
 npm install
-cp .env.example .env      # optional; every key has a fallback
-npm run record
+cp .env.example .env      # every key has a fallback; UNIBOOKS_BE_DIR is the one worth setting
+npm run film              # cards, then takes, then the cut
 ```
 
-Environment variables are read from the process environment. To load a `.env`
-file, run it as `node --env-file-if-exists=.env record.js`.
+Each step also runs alone, and usually should:
+
+```bash
+npm run cards                        # re-rasterise the title cards
+npm run record                       # clean up, then shoot all thirteen scenes
+npm run record -- s08_chat           # re-shoot one, leaving the others alone
+npm run record -- --clean s08_chat   # ...and clear the data the last take left
+npm run build                        # re-cut from whatever is in scenes/
+```
+
+## Before a shoot: hide the load-test fixture
+
+The development database carries a performance fixture — one book, "Sample Book
+1", a few thousand listings, nearly all owned by the demo account, illustrated
+with a stock photograph. On the home page it renders as "660 本上架中" for what
+is really one person. UniBooks-BE's own `seed_homepage_demo.py` calls out why
+that shape reads as fake data; on camera it is the first tile a viewer sees.
+
+```bash
+npm run stage -- hide      # sets those listings to `removed`, backing up their statuses
+npm run stage -- restore   # puts every one back exactly as it was
+```
+
+Nothing is deleted, and the restore reads the backup rather than guessing: the
+fixture's rows are spread across active, reserved and sold, so a restore that
+flipped everything to `active` would quietly rewrite thousands of them.
 
 ## Cleanup between runs
 
-Each recording creates a listing, a conversation and an order. Left in place,
-the next run's video shows the leftovers. Set `UNIBOOKS_BE_DIR` to a
-UniBooks-BE checkout and the script deletes them through `manage.py shell`
+Each recording creates a listing, a conversation, an order and a waitlist
+subscription. Left in place, the next run's video shows the leftovers —
+duplicate listings on the shelf, the same question asked four times in one
+thread, an already-pressed notify button. Set `UNIBOOKS_BE_DIR` to a
+UniBooks-BE checkout and a full run deletes them through `manage.py shell`
 before recording.
 
 Unset, the cleanup is **skipped with a warning** rather than guessed at — this
@@ -63,5 +125,28 @@ cleanup that did nothing.
 ## Throttling
 
 The recording signs in and posts repeatedly, which the backend rate-limits.
-Run the backend with `RELAX_THROTTLES=1` if a recording trips the limits;
-never set that in production.
+Sign-in state is captured once per account and reused across scenes to keep
+that down, but if a run still trips the limits, start the backend with
+`RELAX_THROTTLES=1`. Never set that in production.
+
+## Two app behaviours the recorder works around
+
+Both are races in the app, not in this tool, and both are handled here so the
+camera does not catch them. Worth knowing about if you touch either flow.
+
+**Verification can render as unverified.** `sell.ts` and `book.ts` both decide
+with `authStore.isVerifiedIn(regionService.region())`, and `isUserVerifiedIn()`
+returns false for a null region. When the `/auth/me` response wins the race
+against the region resolving, a verified account is told it is not — the sell
+wizard shows a red banner and refuses the final submit, and "contact seller"
+silently does nothing. `assertVerified()` settles, checks, and reloads once.
+
+**A new record can lose the race against the view listing it.** Arriving at
+`/messages?chat=<id>` just after creating the conversation, the inbox request
+can come back without it, and `messages.html` renders the empty-inbox state
+instead of the thread. `waitOrReload()` reloads once rather than waiting longer
+on a view that has already decided it has nothing to show.
+
+Also note that `waitForURL` is not used anywhere: every route change in this app
+is an Angular pushState, which does not re-fire `load`, so it times out on
+navigations that already happened. Arrival is confirmed by the DOM instead.

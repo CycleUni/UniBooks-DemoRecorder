@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="zh-TW">
+<head>
+  <meta charset="utf-8">
+  <title>UniBooks - 07 Chapter Buyer</title>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700&family=Noto+Serif+TC:wght@700&display=swap');
+
+    :root {
+      --ink: #1F2933;
+      --ink-soft: #4A555F;
+      --paper: #FFFFFF;
+      --paper-warm: #F7F5F0;
+      --line: #D9D4CB;
+      --line-strong: #948A76;
+      --accent: #1E5C46;
+      --accent-soft: #E7F0EA;
+      --brand-warm: #C8763F;
+      --brand-warm-soft: #FBF0E4;
+      --muted: #647079;
+      --flag: #A34A2A;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      width: 1920px;
+      height: 1080px;
+      overflow: hidden;
+      background-color: var(--paper-warm);
+      background-image: repeating-linear-gradient(
+        to bottom,
+        transparent 0 13px,
+        rgba(148, 138, 118, 0.15) 13px 14px
+      );
+      display: flex;
+      flex-direction: column;
+      justify-content: flex-end;
+      padding: 0 160px 232px 160px;
+      position: relative;
+    }
+
+    .chapter-wrap {
+      display: flex;
+      align-items: flex-end;
+      gap: 48px;
+    }
+
+    .chapter-num {
+      font-family: 'Noto Serif TC', serif;
+      font-weight: 700;
+      font-size: 260px;
+      line-height: 0.75;
+      color: var(--brand-warm);
+      opacity: 0.25;
+      user-select: none;
+      flex-shrink: 0;
+    }
+
+    .chapter-content {
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+      padding-bottom: 8px;
+    }
+
+    .chapter-eyebrow {
+      font-family: 'Noto Sans TC', -apple-system, 'PingFang TC', sans-serif;
+      font-size: 24px;
+      font-weight: 700;
+      color: var(--brand-warm);
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+
+    .chapter-title {
+      font-family: 'Noto Serif TC', serif;
+      font-weight: 700;
+      font-size: 64px;
+      color: var(--accent);
+      line-height: 1.25;
+      letter-spacing: -0.01em;
+      white-space: nowrap;
+    }
+  </style>
+</head>
+<body>
+  <div class="chapter-wrap">
+    <div class="chapter-num">02</div>
+    <div class="chapter-content">
+      <div class="chapter-eyebrow">買家視角</div>
+      <h1 class="chapter-title">找書、聊天、面交，一頁完成</h1>
+    </div>
+  </div>
+</body>
+</html>

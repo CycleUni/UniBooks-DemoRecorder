@@ -2,11 +2,15 @@
   "name": "unibooks-demo-recorder",
   "version": "1.0.0",
   "private": true,
-  "description": "Records scripted walkthroughs of a running UniBooks deployment as showcase video",
+  "description": "Records scripted walkthroughs of a running UniBooks deployment and cuts them into a showcase film",
   "main": "record.js",
   "scripts": {
-    "record": "node record.js",
-    "check": "node --check record.js"
+    "film": "node --env-file-if-exists=.env film.js",
+    "cards": "node --env-file-if-exists=.env render-cards.js",
+    "record": "node --env-file-if-exists=.env record.js",
+    "build": "node --env-file-if-exists=.env build-video.js",
+    "stage": "node --env-file-if-exists=.env scripts/stage-data.js",
+    "check": "node --check record.js && node --check build-video.js && node --check render-cards.js && node --check timeline.js && node --check film.js && node --check lib/pointer.js && node --check lib/config.js && node --check scripts/stage-data.js && node --check scripts/check-env-example.js"
   },
   "devDependencies": {
     "playwright": "^1.62.1"

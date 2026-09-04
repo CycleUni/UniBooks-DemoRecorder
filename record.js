@@ -1,511 +1,677 @@
+/**
+ * Shoots the thirteen takes the edit is built from.
+ *
+ * This is not a test suite. There are no assertions, nothing gates CI on it,
+ * and a successful run is not evidence that anything works — if a flow is
+ * broken the recording shows the breakage instead of failing.
+ *
+ * ── Why one context per scene ──────────────────────────────────────────────
+ *
+ * The previous version drove two very long flows in two contexts, so a
+ * selector that moved in the middle of the buyer journey cost the whole
+ * journey. Each scene now owns its browser, its recording and its setup, which
+ * means a scene can be re-shot on its own (`npm run record -- s08_chat`) and
+ * each one can be paced differently.
+ *
+ * ── Why scenes mark themselves in ──────────────────────────────────────────
+ *
+ * Playwright records a context from creation to close; there is no way to
+ * start the camera partway through. But most scenes need the app put into some
+ * state first — signed in, three steps into a wizard, holding an open
+ * conversation — and none of that belongs on screen. So every scene runs in
+ * two phases: a setup phase that moves as fast as the app allows, then a call
+ * to `mark()`, then the performance. The offset `mark()` records goes into
+ * scenes.json and build-video.js trims everything before it. Setup being ugly
+ * and instant is the point; it never reaches the cut.
+ *
+ * ── Why the chat scene opens a second browser ─────────────────────────────
+ *
+ * A single browser can only show a message being sent. The claim being made is
+ * that messaging is live — delivered over CFEdgeChat rather than appearing on
+ * the next reload — and the only way to film that is to have someone else send
+ * one. So the seller is driven in a second, unrecorded context, and the reply
+ * lands in the buyer's already-open window with nothing having been refreshed.
+ */
+
 const { chromium } = require('playwright');
 const path = require('path');
 const fs = require('fs');
-const { execSync } = require('child_process');
+const { execFileSync } = require('child_process');
 
-// Everything environment-specific is read here rather than hardcoded. This
-// script used to live in UniBooks-FE/scripts and reached its neighbours by
-// relative path, which only worked from that one spot in that one checkout.
-// See .env.example for what each of these is and when it has to be set.
-const BASE_URL = process.env.DEMO_BASE_URL || 'http://localhost:4200';
-const OUTPUT_DIR = path.resolve(process.env.DEMO_OUTPUT_DIR || path.join(__dirname, 'demo_videos'));
-const RAW_DIR = path.join(OUTPUT_DIR, 'raw');
+const cfg = require('./lib/config');
+const P = require('./lib/pointer');
+const timeline = require('./timeline');
 
-// Resolved from PATH, rather than the absolute Homebrew path this
-// replaces, which existed only on an Apple-silicon Mac.
-const FFMPEG = process.env.FFMPEG_BIN || 'ffmpeg';
+const VIEWPORT = { width: timeline.width, height: timeline.height };
 
-// Where UniBooks-BE is checked out, for the pre-recording data cleanup.
-// Deliberately no default: this repository no longer sits beside it, and a
-// guessed path is how a cleanup silently cleans nothing.
-const BE_DIR = process.env.UNIBOOKS_BE_DIR || '';
-const BE_PYTHON = process.env.UNIBOOKS_BE_PYTHON || '.venv/bin/python';
+// ───────────────────────────────────────────────────────────── sign-in state
 
-// The local demo account the recording drives. Fictitious values for an
-// account that exists only in a development database.
-const DEMO_EMAIL = process.env.DEMO_EMAIL || 'test@test.com';
-const DEMO_PASSWORD = process.env.DEMO_PASSWORD || 'Password123!';
+/**
+ * Sign in once per account and keep the resulting storage state in memory.
+ *
+ * Scenes reuse it so that thirteen recordings cost two logins rather than
+ * thirteen — both because the login screen has no business appearing at the
+ * head of every take, and because the backend rate-limits authentication and
+ * would start rejecting the later scenes.
+ */
+const stateCache = new Map();
 
-if (!fs.existsSync(OUTPUT_DIR)) fs.mkdirSync(OUTPUT_DIR, { recursive: true });
-if (!fs.existsSync(RAW_DIR)) fs.mkdirSync(RAW_DIR, { recursive: true });
+async function storageStateFor(browser, creds) {
+  if (stateCache.has(creds.email)) return stateCache.get(creds.email);
 
-// Visual cursor overlay for realistic demo presentation
-async function setupVisualCursor(page) {
-  await page.addInitScript(() => {
-    window.addEventListener('DOMContentLoaded', () => {
-      const cursor = document.createElement('div');
-      cursor.id = 'demo-visual-cursor';
-      cursor.style.cssText = `
-        position: fixed;
-        top: 0;
-        left: 0;
-        width: 22px;
-        height: 22px;
-        border-radius: 50%;
-        background: rgba(37, 99, 235, 0.75);
-        border: 2px solid #ffffff;
-        box-shadow: 0 2px 10px rgba(0, 0, 0, 0.35);
-        pointer-events: none;
-        z-index: 2147483647;
-        transform: translate(-50%, -50%);
-        transition: transform 0.08s ease, background 0.15s ease;
-      `;
-      document.body.appendChild(cursor);
+  const context = await browser.newContext({ viewport: VIEWPORT });
+  const page = await context.newPage();
+  await page.goto(cfg.regionUrl('/login'), { waitUntil: 'domcontentloaded' });
 
-      window.addEventListener('mousemove', (e) => {
-        cursor.style.left = `${e.clientX}px`;
-        cursor.style.top = `${e.clientY}px`;
-      });
-      window.addEventListener('mousedown', () => {
-        cursor.style.transform = 'translate(-50%, -50%) scale(0.75)';
-        cursor.style.background = 'rgba(239, 68, 68, 0.9)';
-      });
-      window.addEventListener('mouseup', () => {
-        cursor.style.transform = 'translate(-50%, -50%) scale(1)';
-        cursor.style.background = 'rgba(37, 99, 235, 0.75)';
-      });
+  await page.locator('.auth-box ui-input input').first().fill(creds.email);
+  await page.locator('.auth-box input[type="password"]').first().fill(creds.password);
+  await page.locator('.auth-box ui-button button').first().click();
+
+  // The token lands in localStorage; wait for it rather than for a URL, since
+  // where login returns you to depends on how you arrived.
+  await page
+    .waitForFunction(() => !!localStorage.getItem('access_token'), { timeout: 20000 })
+    .catch(() => {
+      throw new Error(
+        `Sign-in failed for ${creds.email}. Check DEMO_EMAIL / DEMO_PASSWORD and that the ` +
+          `account exists in the database at ${cfg.BASE_URL}.`,
+      );
     });
+
+  const state = await context.storageState();
+  await context.close();
+  stateCache.set(creds.email, state);
+  console.log(`  ✓ signed in as ${creds.email}`);
+  return state;
+}
+
+// ──────────────────────────────────────────────────────────────── recording
+
+function ffmpeg(args) {
+  execFileSync(cfg.FFMPEG, ['-loglevel', 'error', '-nostats', ...args], {
+    stdio: ['ignore', 'ignore', 'pipe'],
   });
 }
 
-// Smooth mouse move with cubic bezier easing
-async function smoothMoveTo(page, target, steps = 18) {
-  let targetX, targetY;
-  if (typeof target === 'string') {
-    const locator = page.locator(target).first();
-    const box = await locator.boundingBox().catch(() => null);
-    if (!box) return;
-    targetX = box.x + box.width / 2;
-    targetY = box.y + box.height / 2;
-  } else if (target && target.boundingBox) {
-    const box = await target.boundingBox().catch(() => null);
-    if (!box) return;
-    targetX = box.x + box.width / 2;
-    targetY = box.y + box.height / 2;
-  } else {
-    targetX = target.x;
-    targetY = target.y;
-  }
+/**
+ * Run one scene and leave an mp4 plus the offset its performance starts at.
+ */
+async function shoot(browser, entry) {
+  const scene = SCENES[entry.id];
+  if (!scene) throw new Error(`timeline.js lists scene "${entry.id}" but record.js has no such scene`);
 
-  const current = page.__lastMousePos || { x: 960, y: 540 };
-  for (let i = 1; i <= steps; i++) {
-    const t = i / steps;
-    const ease = t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
-    const curX = current.x + (targetX - current.x) * ease;
-    const curY = current.y + (targetY - current.y) * ease;
-    await page.mouse.move(curX, curY);
-    await page.waitForTimeout(14);
-  }
-  page.__lastMousePos = { x: targetX, y: targetY };
-}
+  const budget = (entry.duration * (entry.speedHint || 1)).toFixed(1);
+  console.log(`\n▶ ${entry.id}  (cut ${entry.duration}s · aiming for ~${budget}s of footage)`);
 
-// Smooth scroll
-async function smoothScroll(page, distance, steps = 20) {
-  const stepDistance = distance / steps;
-  for (let i = 0; i < steps; i++) {
-    await page.evaluate((d) => window.scrollBy({ top: d, behavior: 'auto' }), stepDistance);
-    await page.waitForTimeout(18);
-  }
-}
+  const context = await browser.newContext({
+    viewport: VIEWPORT,
+    storageState: await storageStateFor(browser, cfg.BUYER),
+    recordVideo: { dir: cfg.RAW_DIR, size: VIEWPORT },
+    locale: 'zh-TW',
+    // The takes are shot on a machine that may be doing other things. Freezing
+    // the timezone keeps "posted 3 minutes ago" style copy stable between the
+    // scenes that were shot minutes apart.
+    timezoneId: 'Asia/Taipei',
+  });
 
-async function convertWebmToMp4(webmPath, mp4Path) {
-  console.log(`Encoding MP4: ${path.basename(webmPath)} -> ${path.basename(mp4Path)}...`);
+  const page = await context.newPage();
+  const startedAt = Date.now();
+  await P.attachCursor(page);
+
+  let markedAt = null;
+  const mark = async (settle = 500) => {
+    // A beat of stillness before the performance starts, so the trim never
+    // lands mid-animation and the cut opens on a settled frame.
+    await page.waitForTimeout(settle);
+    markedAt = (Date.now() - startedAt) / 1000;
+  };
+
+  let failure = null;
   try {
-    execSync(`${FFMPEG} -y -i "${webmPath}" -c:v libx264 -pix_fmt yuv420p -preset fast -crf 20 -movflags faststart "${mp4Path}"`, { stdio: 'inherit' });
-    console.log(`✓ MP4 Generated: ${mp4Path} (${fs.statSync(mp4Path).size} bytes)`);
+    await scene({ page, context, browser, mark });
   } catch (err) {
-    console.error('FFmpeg conversion error:', err.message);
+    // A broken scene should not cost the twelve that work. Keep the partial
+    // footage — it is usually the fastest way to see what moved.
+    failure = err;
+    console.error(`  ✗ ${entry.id} failed: ${err.message}`);
+  }
+
+  const video = page.video();
+  await page.close();
+  await context.close();
+
+  const raw = await video.path();
+  const out = path.join(cfg.SCENE_DIR, `${entry.id}.mp4`);
+  ffmpeg(['-y', '-i', raw, '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-preset', 'fast', '-crf', '18', '-an', out]);
+
+  const markIn = markedAt === null ? 0 : markedAt;
+  console.log(`  ✓ ${path.basename(out)}  (performance starts at ${markIn.toFixed(1)}s)`);
+
+  return { id: entry.id, file: out, markIn, failed: !!failure, error: failure ? failure.message : null };
+}
+
+// ─────────────────────────────────────────────────────────── shared set-ups
+
+/**
+ * Wait for a selector, reloading once if it does not turn up.
+ *
+ * Freshly created records lose a race against the view meant to list them.
+ * Arriving at /messages?chat=<id> moments after the conversation was created,
+ * the inbox request can come back without it; messages.html then renders the
+ * empty-inbox state rather than the thread, so the chat input never exists to
+ * be waited for. The record is real and the next load finds it, so reloading
+ * is the whole fix — and it is the right fix rather than a longer timeout,
+ * which would only wait longer on a view that has already decided it has
+ * nothing to show. The same race cost three takes in one run: the chat input,
+ * the checkout form and the inbox list.
+ */
+async function waitOrReload(page, selector, { timeout = 15000 } = {}) {
+  try {
+    await page.locator(selector).first().waitFor({ timeout });
+  } catch {
+    await page.reload({ waitUntil: 'domcontentloaded' });
+    await page.locator(selector).first().waitFor({ timeout: timeout + 10000 });
   }
 }
 
-// Part 1: Login & 30-Second Listing Showcase (Seller Journey)
-async function recordLoginAndSell() {
-  console.log('\n======================================================');
-  console.log('🎥 Part 1: 登入優先與 30 秒極速上架 (Seller Journey)');
-  console.log('======================================================');
-  const browser = await chromium.launch({ headless: true });
-  const context = await browser.newContext({
-    viewport: { width: 1920, height: 1080 },
-    recordVideo: { dir: RAW_DIR, size: { width: 1920, height: 1080 } }
-  });
-  const page = await context.newPage();
-  await setupVisualCursor(page);
+/**
+ * Wait until the page agrees the account is verified, or say why not.
+ *
+ * Verification gates both acts: the sell wizard renders all three steps but
+ * refuses the final submit, and the book page's "contact seller" button
+ * returns without doing anything at all. Both then fail somewhere later and
+ * further away — a success screen that never arrives, a chat input that never
+ * appears — so the check belongs up front, where the cause is still legible.
+ *
+ * The settle and the reload are both load-bearing. The state comes from the
+ * /auth/me response, so checking the moment the page has structure asks the
+ * question before the answer exists. And sell.ts and book.ts both decide with
+ * `authStore.isVerifiedIn(regionService.region())`, where isUserVerifiedIn()
+ * returns false for a null region — so when the profile response wins the race
+ * against the region resolving, a verified account renders as unverified. That
+ * shows up when scenes are shot back to back and the app boots slower; loading
+ * again, with the region already warm, resolves it. One retry, then give up
+ * loudly: past that it is a real verification problem and no number of reloads
+ * will fix it.
+ */
+async function assertVerified(page, settledSelector) {
+  const blocked = () =>
+    page.locator('ui-verification-prompt').first().isVisible().catch(() => false);
 
-  // 1. Login
-  console.log(`1. 登入台大驗證學生身分 (${DEMO_EMAIL})...`);
-  await page.goto(`${BASE_URL}/tw/login`, { waitUntil: 'networkidle' });
-  await page.waitForTimeout(1500);
-
-  const emailInput = page.locator('ui-input input').first();
-  await smoothMoveTo(page, emailInput);
-  await emailInput.click();
-  await page.keyboard.type(DEMO_EMAIL, { delay: 45 });
-  await page.waitForTimeout(400);
-
-  const pwInput = page.locator('ui-input input').nth(1);
-  await smoothMoveTo(page, pwInput);
-  await pwInput.click();
-  await page.keyboard.type(DEMO_PASSWORD, { delay: 45 });
-  await page.waitForTimeout(500);
-
-  const loginBtn = page.locator('ui-button button').first();
-  await smoothMoveTo(page, loginBtn);
-  await loginBtn.click();
-  await page.waitForTimeout(2200);
-
-  // 2. Navigate to Sell Page
-  console.log('2. 點擊「我要賣書」，進入刊登流程...');
-  const sellNavBtn = page.locator('a[href*="/sell"], ui-button:has-text("賣書"), button:has-text("賣書")').first();
-  if (await sellNavBtn.count() > 0) {
-    await smoothMoveTo(page, sellNavBtn);
-    await sellNavBtn.click();
-  } else {
-    await page.goto(`${BASE_URL}/tw/sell`, { waitUntil: 'networkidle' });
-  }
-  await page.waitForTimeout(2000);
-
-  // 3. Step 1: Input ISBN
-  console.log('3. 輸入 ISBN 條碼 (9780134685991)...');
-  const isbnInput = page.locator('input[placeholder*="ISBN"], ui-input input').first();
-  await smoothMoveTo(page, isbnInput);
-  await isbnInput.click();
-  await page.waitForTimeout(300);
-  await page.keyboard.type('9780134685991', { delay: 75 });
+  await page.waitForLoadState('networkidle').catch(() => {});
   await page.waitForTimeout(600);
+  if (!(await blocked())) return;
 
-  // Click Search
-  console.log('4. 雙引擎自動解析書目資料...');
-  const searchBookBtn = page.locator('ui-button button:has-text("搜尋"), ui-button button:has-text("Search")').first();
-  if (await searchBookBtn.count() > 0) {
-    await smoothMoveTo(page, searchBookBtn);
-    await searchBookBtn.click();
-    await page.waitForTimeout(3000);
-  }
+  await page.reload({ waitUntil: 'domcontentloaded' });
+  await page.locator(settledSelector).first().waitFor({ timeout: 25000 });
+  await page.waitForLoadState('networkidle').catch(() => {});
+  await page.waitForTimeout(1200);
+  if (!(await blocked())) return;
 
-  // Select book if list appears
-  const selectResult = page.locator('.book-match.selectable, .results-container button').first();
-  if (await selectResult.count() > 0) {
-    await smoothMoveTo(page, selectResult);
-    await selectResult.click();
-    await page.waitForTimeout(1500);
-  }
-
-  // Pause on auto-filled book preview
-  console.log('5. 展示秒級自動帶出之書名與原裝封面 (Effective Java)...');
-  await page.waitForTimeout(2000);
-
-  // Click Next Step
-  const nextStepBtn1 = page.locator('.actions ui-button button').first();
-  await smoothMoveTo(page, nextStepBtn1);
-  await nextStepBtn1.click();
-  await page.waitForTimeout(1800);
-
-  // 4. Step 2: Condition & Course
-  console.log('6. 勾選「近全新」書況與關聯課程...');
-  const conditionOptions = page.locator('.condition-picker button, .condition-chip, label');
-  if (await conditionOptions.count() >= 2) {
-    await smoothMoveTo(page, conditionOptions.nth(1));
-    await conditionOptions.nth(1).click();
-    await page.waitForTimeout(600);
-  }
-
-  const courseInput = page.locator('input[placeholder*="課程"], ui-input input').nth(1);
-  if (await courseInput.count() > 0) {
-    await smoothMoveTo(page, courseInput);
-    await courseInput.click();
-    await page.keyboard.type('物件導向程式設計 (OOP)', { delay: 50 });
-    await page.waitForTimeout(800);
-  }
-
-  await smoothScroll(page, 200, 15);
-  await page.waitForTimeout(1000);
-
-  const nextStepBtn2 = page.locator('.actions.split ui-button:last-child button').first();
-  await smoothMoveTo(page, nextStepBtn2);
-  await nextStepBtn2.click();
-  await page.waitForTimeout(1800);
-
-  // 5. Step 3: Price & Submit
-  console.log('7. 設定售價 NT$ 380 並確認刊登...');
-  const priceField = page.locator('.price-input, input[type="number"]').first();
-  await smoothMoveTo(page, priceField);
-  await priceField.click();
-  await priceField.fill('380');
-  await page.waitForTimeout(1500);
-
-  const submitBtn = page.locator('.actions.split ui-button:last-child button').first();
-  await smoothMoveTo(page, submitBtn);
-  await submitBtn.click();
-  await page.waitForTimeout(3000);
-
-  // 6. Success & My Listings
-  console.log('8. 刊登成功畫面（無請求限制錯誤）...');
-  await page.waitForTimeout(2500);
-
-  console.log('9. 前往會員「我的刊登」確認商品即時上架流通...');
-  await page.goto(`${BASE_URL}/tw/account/listings`, { waitUntil: 'networkidle' });
-  await page.waitForTimeout(2200);
-  await smoothScroll(page, 250, 15);
-  await page.waitForTimeout(2500);
-
-  const video = page.video();
-  await page.close();
-  await context.close();
-  await browser.close();
-
-  const videoPath = await video.path();
-  const finalMp4 = path.join(OUTPUT_DIR, '01_login_and_sell.mp4');
-  await convertWebmToMp4(videoPath, finalMp4);
+  throw new Error(
+    `${cfg.BUYER.email} is rendering as unverified at ${page.url()}, so this flow cannot ` +
+      `complete. Check that the account is verified in region ${cfg.REGION}.`,
+  );
 }
 
-// Part 2: Search ➔ Active Listing ➔ Chat ➔ Meetup Request ➔ Order Page ➔ Back to Chat System Notification
-async function recordSearchChatMeetupAndOrder() {
-  console.log('\n========================================================================');
-  console.log('🎥 Part 2: 智慧搜尋 ➔ 現貨教材 ➔ 即時私訊 ➔ 送出面交 ➔ 訂單頁 ➔ 聊天室卡片');
-  console.log('========================================================================');
-  const browser = await chromium.launch({ headless: true });
-  const context = await browser.newContext({
-    viewport: { width: 1920, height: 1080 },
-    recordVideo: { dir: RAW_DIR, size: { width: 1920, height: 1080 } }
-  });
-  const page = await context.newPage();
-  await setupVisualCursor(page);
+/** Put the sell wizard into `step`, as fast as the app will allow. */
+async function openSellWizardAt(page, step) {
+  await page.goto(cfg.regionUrl('/sell'), { waitUntil: 'domcontentloaded' });
+  await page.locator('.step-content').first().waitFor({ timeout: 20000 });
 
-  // Login as verified student
-  console.log('1. 以台大學生驗證身分登入...');
-  await page.goto(`${BASE_URL}/tw/login`, { waitUntil: 'networkidle' });
-  await page.waitForTimeout(1000);
-  const emailInput = page.locator('ui-input input').first();
-  await emailInput.fill(DEMO_EMAIL);
-  const pwInput = page.locator('ui-input input').nth(1);
-  await pwInput.fill(DEMO_PASSWORD);
-  await page.locator('ui-button button').first().click();
-  await page.waitForTimeout(2000);
+  await assertVerified(page, '.step-content');
 
-  // 1. Homepage Steady Exploration
-  console.log('2. 停留在首頁，穩定展示 Hero 與搜尋框（不提前滑動）...');
-  await page.goto(`${BASE_URL}/tw`, { waitUntil: 'networkidle' });
-  await page.waitForTimeout(2000);
+  // A draft left by an interrupted run would otherwise reopen mid-wizard.
+  const discard = page.locator('.draft-banner-actions ui-button button').first();
+  if (await discard.count()) await discard.click().catch(() => {});
 
-  // Smoothly move to search input while page remains perfectly steady
-  const searchInput = page.locator('.hero-input input, input[type="text"]').first();
-  await smoothMoveTo(page, searchInput);
-  await searchInput.click();
-  await page.waitForTimeout(400);
+  if (step === 1) return;
 
-  // Smooth typing without page scroll
-  console.log('3. 在搜尋欄平穩輸入「Calculus」...');
-  await page.keyboard.type('Calculus', { delay: 85 });
-  await page.waitForTimeout(700);
+  await page.locator('.step-content ui-input input').first().fill(cfg.SELL.isbn);
+  await page.locator('ui-button button', { hasText: /搜尋書目|Search/ }).first().click();
+  await page.locator('button.book-match.selectable').first().waitFor({ timeout: 25000 });
+  await page.locator('button.book-match.selectable').first().click();
+  await page.locator('.actions ui-button button').first().click();
+  await page.locator('ui-condition-picker').waitFor({ timeout: 15000 });
 
-  // Click Search button
-  console.log('4. 點擊搜尋按鈕，發送精準檢索...');
-  const searchBtn = page.locator('.search-submit button, ui-button.search-submit button').first();
-  if (await searchBtn.count() > 0) {
-    await smoothMoveTo(page, searchBtn);
-    await searchBtn.click();
-  } else {
-    await page.keyboard.press('Enter');
-  }
+  if (step === 2) return;
 
-  // Wait until search results page is fully loaded and settled!
-  await page.waitForURL('**/search**', { timeout: 10000 });
-  await page.waitForTimeout(2000);
+  await page.locator('ui-condition-picker .chip').nth(1).click();
+  await page.locator('.step-content ui-input input').nth(0).fill(cfg.SELL.course);
+  await page.locator('.actions.split ui-button:last-child button').first().click();
+  await page.locator('input.price-input').waitFor({ timeout: 15000 });
+}
 
-  // 2. Smoothly scroll through search results
-  console.log('5. 搜尋結果呈現完畢，平滑向下滾動瀏覽各校二手書單與篩選器...');
-  await smoothScroll(page, 300, 20);
-  await page.waitForTimeout(1800);
+/** Open the target book's detail page. */
+async function openTargetBook(page) {
+  await page.goto(`${cfg.regionUrl('/book')}?isbn=${cfg.BUY.isbn}`, { waitUntil: 'domcontentloaded' });
+  await page.locator('.listings-grid ui-listing-card').first().waitFor({ timeout: 25000 });
+  await assertVerified(page, '.listings-grid ui-listing-card');
+}
 
-  // Select the book tile that HAS ACTIVE SELLERS
-  console.log('6. 精確鎖定有學長姐現貨上架之《Calculus: Early Transcendentals》（標示有賣家與價格）...');
-  const bookTileWithSellers = page.locator('ui-book-tile').filter({
-    has: page.locator('.tile-sellers, .price-tag:not(.waitlist), ui-button:has-text("查看全部"), ui-button:has-text("View all")')
-  }).first();
+/**
+ * Get the buyer into the conversation for the target listing.
+ *
+ * Arrival is confirmed by the chat input existing, not by `waitForURL`. Every
+ * route change in this app is an Angular pushState, and pushState does not
+ * re-fire `load` — which is the lifecycle event waitForURL waits for by
+ * default. It therefore times out on a navigation that already happened.
+ */
+async function openConversation(page) {
+  await openTargetBook(page);
+  await page.locator('.button-group ui-button:first-child button').first().click();
+  await waitOrReload(page, '.message-input-area ui-input input');
+}
 
-  if (await bookTileWithSellers.count() > 0) {
-    await smoothMoveTo(page, bookTileWithSellers);
-    await page.waitForTimeout(1500);
-    const clickTarget = bookTileWithSellers.locator('.tile-body, ui-button button').first();
-    await clickTarget.click();
-  } else {
-    await page.goto(`${BASE_URL}/tw/book?isbn=9781285741550`, { waitUntil: 'networkidle' });
-  }
-  await page.waitForTimeout(2500);
+// ───────────────────────────────────────────────────────────────── the takes
 
-  // 3. Book Detail & Seller Listings
-  console.log('7. 進入書籍詳情頁，平滑滾動展示真實賣家（台大學長）、近全新書況與 NT$600 價格...');
-  await smoothScroll(page, 380, 22);
-  await page.waitForTimeout(2200);
+const SCENES = {
+  /** The product's own front door: what it is, and what you can ask it. */
+  async s01_home_hero({ page, mark }) {
+    await page.goto(cfg.regionUrl('/'), { waitUntil: 'domcontentloaded' });
+    await page.locator('.hero-search').waitFor({ timeout: 25000 });
+    // Cover art is fetched per book; without this the hero's tilted stack
+    // pops in halfway through the shot.
+    await page.waitForLoadState('networkidle').catch(() => {});
+    await mark();
 
-  // Click on "Contact seller" (聯絡賣家) on the listing card
-  console.log('8. 點擊「聯絡賣家」開啟站內即時通訊 (CFEdgeChat)...');
-  const contactBtn = page.locator('ui-listing-card ui-button button').filter({ hasText: /Contact seller|聯絡賣家/ }).first();
-  if (await contactBtn.count() > 0) {
-    await smoothMoveTo(page, contactBtn);
-    await contactBtn.click();
-    await page.waitForTimeout(3000);
-  }
-
-  // 4. Real-time Edge Chat (CFEdgeChat)
-  console.log('9. 進入即時通訊聊天室，在對話框輸入面交詢問訊息...');
-  const chatInput = page.locator('.message-input-area ui-input input');
-  if (await chatInput.count() > 0) {
-    await smoothMoveTo(page, chatInput);
-    await chatInput.click();
-    await page.waitForTimeout(400);
-
-    await page.keyboard.type('學長好，請問這本微積分今天下午在總圖方便面交嗎？', { delay: 55 });
-    await page.waitForTimeout(800);
-
-    const sendBtn = page.locator('.message-input-area ui-button button').first();
-    if (await sendBtn.count() > 0) {
-      await smoothMoveTo(page, sendBtn);
-      await sendBtn.click();
-      await page.waitForTimeout(2000);
-    }
-  }
-
-  // 5. Meetup & Checkout Flow
-  console.log('10. 點擊頂部橫幅「立即購買 / 約定面交」，進入校園交易結帳頁面...');
-  const buyBtn = page.locator('.listing-banner-actions ui-button button').filter({ hasText: /Buy|購買|面交/ }).first();
-  if (await buyBtn.count() > 0) {
-    await smoothMoveTo(page, buyBtn);
-    await buyBtn.click();
-    await page.waitForTimeout(2500);
-  }
-
-  // 6. Formally Submit Meetup Request
-  console.log('11. 正式點擊「送出面交請求」按鈕，發送交易申請...');
-  const placeOrderBtn = page.locator('.form-card ui-button button, button:has-text("送出面交請求"), button:has-text("Send Meetup Request")').first();
-  if (await placeOrderBtn.count() > 0) {
-    await smoothMoveTo(page, placeOrderBtn);
-    await placeOrderBtn.click();
-    await page.waitForTimeout(3000);
-  }
-
-  // 7. Success Screen & Jump to Orders Page
-  console.log('12. 抵達面交請求送出成功頁面，點擊「查看訂單」...');
-  await page.waitForTimeout(2000);
-  const viewOrdersBtn = page.locator('ui-button[ng-reflect-link*="orders"], a:has-text("查看訂單"), ui-button a, ui-button button').first();
-  if (await viewOrdersBtn.count() > 0) {
-    await smoothMoveTo(page, viewOrdersBtn);
-    await viewOrdersBtn.click();
+    await P.moveTo(page, '.search-title', { steps: 26, settle: 1400 });
+    await P.moveTo(page, '.hero-input input', { steps: 22, settle: 1100 });
+    await P.moveTo(page, '.popular-tags .tag-btn', { steps: 18, settle: 1000 });
+    await P.moveTo(page, '.hero-trust li', { steps: 20, settle: 1400 });
+    await P.smoothScroll(page, 180, { steps: 26 });
     await page.waitForTimeout(2800);
-  }
+  },
 
-  // 8. Orders Page Showcase
-  console.log('13. 進入帳號訂單頁面，展示微積分訂單（狀態：等候賣家確認 / pending）...');
-  await smoothScroll(page, 200, 15);
-  await page.waitForTimeout(2500);
+  /** An ISBN is the whole of the input. */
+  async s02_sell_isbn({ page, mark }) {
+    await page.goto(cfg.regionUrl('/'), { waitUntil: 'domcontentloaded' });
+    await page.locator('.hero-search').waitFor({ timeout: 25000 });
+    await mark();
 
-  // 9. Switch back to Messages & Showcase System Meetup Card
-  console.log('14. 切換回即時私訊頁面 (/tw/messages)...');
-  const msgNav = page.locator('a[href*="/messages"], a[regionlink*="messages"], .nav-links a:has-text("MESSAGES"), .nav-links a:has-text("訊息")').first();
-  if (await msgNav.count() > 0) {
-    await smoothMoveTo(page, msgNav);
-    await msgNav.click();
-  } else {
-    await page.goto(`${BASE_URL}/tw/messages`, { waitUntil: 'networkidle' });
-  }
-  await page.waitForTimeout(2500);
+    await P.clickAt(page, '.nav-links a[href*="/sell"]', { settle: 1400 });
+    await page.locator('.step-content').first().waitFor({ timeout: 20000 });
+    await assertVerified(page, '.step-content');
+    const discard = page.locator('.draft-banner-actions ui-button button').first();
+    if (await discard.count()) await discard.click().catch(() => {});
+    await page.waitForTimeout(900);
 
-  // Click the top conversation in the inbox to open chat room
-  const firstChat = page.locator('messages-inbox-list .chat-item, .chat-item').first();
-  if (await firstChat.count() > 0) {
-    console.log('15. 開啟對話，展示系統自動發出的「面交請求」系統卡片與最新狀態...');
-    await smoothMoveTo(page, firstChat);
-    await firstChat.click();
+    // Walk the three steps before touching anything: the shot is partly about
+    // how short the wizard is, and that only reads if you see all of it first.
+    await P.moveTo(page, page.locator('.stepper .step').nth(0), { steps: 18, settle: 650 });
+    await P.moveTo(page, page.locator('.stepper .step').nth(1), { steps: 14, settle: 650 });
+    await P.moveTo(page, page.locator('.stepper .step').nth(2), { steps: 14, settle: 900 });
+
+    await P.moveTo(page, '.step-content .desc', { steps: 18, settle: 1200 });
+    await P.typeInto(page, '.step-content ui-input input', cfg.SELL.isbn, { delay: 130, settle: 1400 });
+    await P.clickAt(page, page.locator('ui-button button', { hasText: /搜尋書目|Search/ }).first(), {
+      settle: 2600,
+    });
+  },
+
+  /**
+   * The take the seller act exists for: an ISBN turning into a title, an
+   * author and cover art without anyone typing them. It plays at close to real
+   * speed — sped up it stops reading as a lookup and starts reading as a cut.
+   */
+  async s03_sell_autofill({ page, mark }) {
+    await openSellWizardAt(page, 1);
+    await page.locator('.step-content ui-input input').first().fill(cfg.SELL.isbn);
+    await mark();
+
+    await P.clickAt(page, page.locator('ui-button button', { hasText: /搜尋書目|Search/ }).first());
+    await page.locator('button.book-match.selectable').first().waitFor({ timeout: 25000 });
     await page.waitForTimeout(2000);
-  }
 
-  // Smoothly focus on the system meetup notification card
-  const meetupCard = page.locator('ui-meetup-card, .msg-bubble.meetup-card').first();
-  if (await meetupCard.count() > 0) {
-    console.log('16. 游標移動至系統面交請求卡片，定格展示完整閉環資訊...');
-    await smoothMoveTo(page, meetupCard, 22);
-    await page.waitForTimeout(4000);
-  } else {
-    await page.waitForTimeout(4000);
-  }
+    await P.clickAt(page, 'button.book-match.selectable', { settle: 1600 });
+    // Rest on the filled-in title and cover: this is the assertion the shot is
+    // making, so the cut should end looking straight at it.
+    await P.restOn(page, '.book-match .book-title-serif', { hold: 3000 });
+  },
 
-  const video = page.video();
-  await page.close();
-  await context.close();
-  await browser.close();
+  /** Condition, course, professor — the campus-specific metadata. */
+  async s04_sell_details({ page, mark }) {
+    await openSellWizardAt(page, 2);
+    await mark();
 
-  const videoPath = await video.path();
-  const finalMp4 = path.join(OUTPUT_DIR, '02_search_chat_meetup_order.mp4');
-  await convertWebmToMp4(videoPath, finalMp4);
-}
+    // Read along the condition chips before picking one, so the grading scale
+    // registers as a scale rather than as a button that happened to be there.
+    await P.moveTo(page, page.locator('ui-condition-picker .chip').nth(0), { steps: 18, settle: 600 });
+    await P.clickAt(page, page.locator('ui-condition-picker .chip').nth(1), { settle: 1300 });
 
-// Clean previous recording test data from backend DB
+    await P.typeInto(page, page.locator('.step-content ui-input input').nth(0), cfg.SELL.course, {
+      delay: 90,
+      settle: 1000,
+    });
+    await P.typeInto(page, page.locator('.step-content ui-input input').nth(1), cfg.SELL.professor, {
+      delay: 90,
+      settle: 1200,
+    });
+
+    await P.smoothScroll(page, 220, { steps: 20 });
+    // The photo slots are the part of this step nobody would guess at from a
+    // description, so the pointer goes there rather than straight to Next.
+    await P.moveTo(page, '.photo-upload .dropzone', { steps: 20, settle: 1200 });
+    await page.waitForTimeout(1400);
+    await P.clickAt(page, '.actions.split ui-button:last-child button', { settle: 1600 });
+  },
+
+  /** A price, a button, and the listing is live. */
+  async s05_sell_publish({ page, mark }) {
+    await openSellWizardAt(page, 3);
+    await mark();
+
+    await P.typeInto(page, 'input.price-input', cfg.SELL.price, { delay: 140, settle: 1200, clear: true });
+    await P.clickAt(page, '.actions.split ui-button:last-child button', { settle: 800 });
+
+    await page.locator('.step-content.text-center h2').waitFor({ timeout: 30000 });
+    await page.waitForTimeout(2800);
+
+    // The claim is that it is on the shelf, so go and look at the shelf.
+    await page.goto(cfg.regionUrl('/account/listings'), { waitUntil: 'domcontentloaded' });
+    await page.locator('ui-listing-row').first().waitFor({ timeout: 25000 });
+    await P.restOn(page, 'ui-listing-row', { hold: 3200 });
+  },
+
+  /**
+   * One results page carrying both halves of the argument: a book with a
+   * seller and a price, and a book with nobody selling and people waiting.
+   */
+  async s06_search({ page, mark }) {
+    await page.goto(cfg.regionUrl('/'), { waitUntil: 'domcontentloaded' });
+    await page.locator('.hero-input input').waitFor({ timeout: 25000 });
+    await mark();
+
+    await P.typeInto(page, '.hero-input input', cfg.BUY.query, { delay: 110, settle: 700 });
+    await P.clickAt(page, '.search-submit button');
+    // Results appearing is the proof of arrival; see openConversation for why
+    // waitForURL is not used for Angular's client-side route changes.
+    await page.locator('ui-book-tile').first().waitFor({ timeout: 30000 });
+    await page.waitForTimeout(2600);
+
+    await P.moveTo(page, '.sidebar .filter-group', { steps: 22, settle: 1200 });
+    await P.smoothScroll(page, 260, { steps: 24 });
+    await page.waitForTimeout(1000);
+
+    // The two tiles are the argument: one book has a seller and a price, the
+    // next has nobody selling and a queue. Resting on each in turn is what
+    // makes the waitlist shot later read as an answer rather than a feature.
+    await P.moveTo(page, page.locator('ui-book-tile').nth(0), { steps: 22, settle: 2000 });
+    await P.moveTo(page, page.locator('ui-book-tile').nth(1), { steps: 20, settle: 2400 });
+  },
+
+  /** Who is actually selling it, in what condition, for how much. */
+  async s07_book_detail({ page, mark }) {
+    await page.goto(`${cfg.regionUrl('/search')}?q=${encodeURIComponent(cfg.BUY.query)}`, {
+      waitUntil: 'domcontentloaded',
+    });
+    await page.locator('ui-book-tile').first().waitFor({ timeout: 25000 });
+    await mark();
+
+    const target = page
+      .locator('ui-book-tile')
+      .filter({ hasText: cfg.BUY.titleFragment })
+      .first();
+    if (await target.count()) {
+      await P.clickAt(page, target, { settle: 600 });
+    } else {
+      await page.goto(`${cfg.regionUrl('/book')}?isbn=${cfg.BUY.isbn}`, { waitUntil: 'domcontentloaded' });
+    }
+
+    await page.locator('.listings-grid ui-listing-card').first().waitFor({ timeout: 25000 });
+    await page.waitForTimeout(1400);
+
+    await P.moveTo(page, '.book-header .book-title', { steps: 22, settle: 1400 });
+    await P.moveTo(page, '.meta-list .meta-row:last-child', { steps: 18, settle: 1600 });
+
+    await P.smoothScroll(page, 320, { steps: 24 });
+    await P.moveTo(page, '.listings-grid ui-listing-card .seller-info', { steps: 20, settle: 1800 });
+    await P.restOn(page, '.listings-grid ui-listing-card .price', { hold: 2400 });
+  },
+
+  /**
+   * The live-messaging take. Two browsers; only this one is on camera.
+   */
+  async s08_chat({ page, browser, mark }) {
+    await openConversation(page);
+
+    const sellerContext = await browser.newContext({
+      viewport: { width: 1280, height: 800 },
+      storageState: await storageStateFor(browser, cfg.SELLER),
+    });
+    const sellerPage = await sellerContext.newPage();
+    await sellerPage.goto(cfg.regionUrl('/messages'), { waitUntil: 'domcontentloaded' });
+    await waitOrReload(sellerPage, '.chat-item');
+    await sellerPage.locator('.chat-item').first().click();
+    await sellerPage.locator('.message-input-area ui-input input').waitFor({ timeout: 25000 });
+
+    await mark();
+
+    try {
+      // The banner above the thread carries the book, the price and the
+      // condition, which is what makes this a marketplace conversation rather
+      // than a chat window that happens to be in the same app.
+      await P.moveTo(page, '.listing-banner .listing-details', { steps: 22, settle: 1800 });
+
+      await P.typeInto(page, '.message-input-area ui-input input', cfg.CHAT.buyerMessage, {
+        delay: 70,
+        settle: 900,
+      });
+      await P.clickAt(page, '.message-input-area ui-button button', { settle: 2200 });
+
+      // The seller answers while the buyer's window sits untouched. Nothing
+      // below reloads the buyer's page — that is the entire point of the shot.
+      await sellerPage.locator('.message-input-area ui-input input').fill(cfg.CHAT.sellerReply);
+      await sellerPage.locator('.message-input-area ui-button button').first().click();
+
+      await page
+        .locator('.msg-bubble', { hasText: cfg.CHAT.sellerReply.slice(0, 8) })
+        .first()
+        .waitFor({ timeout: 20000 });
+      await page.waitForTimeout(1200);
+      await P.restOn(page, '.message-history .msg-bubble:last-child', { hold: 3600 });
+    } finally {
+      await sellerContext.close();
+    }
+  },
+
+  /** Agreeing to meet, as a request the seller has to accept. */
+  async s09_meetup({ page, mark }) {
+    await openTargetBook(page);
+    await mark();
+
+    await P.clickAt(page, '.button-group ui-button:nth-child(2) button', { settle: 1200 });
+    await waitOrReload(page, '.form-card');
+    await page.waitForTimeout(1100);
+
+    await P.moveTo(page, '.summary-card .book-title-serif', { steps: 22, settle: 1300 });
+    await P.moveTo(page, '.summary-card .price', { steps: 18, settle: 1600 });
+    await P.moveTo(page, '.form-card', { steps: 20, settle: 1400 });
+    await P.clickAt(page, '.form-card ui-button.mt-5 button', { settle: 1200 });
+    await page.locator('.success-box').waitFor({ timeout: 30000 });
+    await page.waitForTimeout(2600);
+  },
+
+  /** The loop closing: the order exists, and the chat says so by itself. */
+  async s10_order_loop({ page, mark }) {
+    await page.goto(cfg.regionUrl('/account/orders'), { waitUntil: 'domcontentloaded' });
+    await page.waitForLoadState('networkidle').catch(() => {});
+    await mark();
+
+    await P.smoothScroll(page, 160, { steps: 18 });
+    await page.waitForTimeout(2600);
+
+    await P.clickAt(page, '.nav-links a[href*="/messages"]', { settle: 1600 });
+    await waitOrReload(page, '.chat-item');
+    await P.clickAt(page, '.chat-item', { settle: 1400 });
+
+    // The meetup request posts itself into the conversation as a system card:
+    // buying and talking are the same thread, not two places to check.
+    await P.restOn(page, 'ui-meetup-card', { hold: 3000 });
+  },
+
+  /**
+   * Who you are dealing with, and how the platform knows.
+   *
+   * Shot on the account's own verification panel rather than on a seller's
+   * card. The card carries the school name, which is the *result* of campus
+   * email verification, but nothing on it says where that name came from; the
+   * panel names the bound .edu.tw address and the moment it was checked, which
+   * is the mechanism the claim actually rests on.
+   */
+  async s11_verified({ page, mark }) {
+    await page.goto(cfg.regionUrl('/account/settings'), { waitUntil: 'domcontentloaded' });
+    await page.locator('.verify-section').waitFor({ timeout: 25000 });
+    await mark();
+
+    await P.restOn(page, '.verify-section .alert-box', { hold: 2600 });
+    await P.moveTo(page, '.verify-section .alert-box p', { steps: 20, settle: 2200 });
+    await P.smoothScroll(page, 140, { steps: 18 });
+    await page.waitForTimeout(1800);
+  },
+
+  /** Nobody selling it yet is a state the platform has an answer for. */
+  async s12_waitlist({ page, mark }) {
+    await page.goto(`${cfg.regionUrl('/book')}?isbn=${cfg.BUY.waitlistIsbn}`, {
+      waitUntil: 'domcontentloaded',
+    });
+    await page.locator('.waitlist-banner').waitFor({ timeout: 25000 });
+    await mark();
+
+    await P.moveTo(page, '.listings-section .section-heading', { steps: 22, settle: 1800 });
+    await P.restOn(page, '.waitlist-count', { hold: 2200 });
+    await P.clickAt(page, '.waitlist-banner ui-button button', { settle: 3200 });
+  },
+
+  /** Read at night, read in three languages. */
+  async s13_theme_lang({ page, mark }) {
+    await page.goto(cfg.regionUrl('/'), { waitUntil: 'domcontentloaded' });
+    await page.locator('.hero-search').waitFor({ timeout: 25000 });
+    await page.waitForLoadState('networkidle').catch(() => {});
+    await mark();
+
+    await P.clickAt(page, '.theme-dropdown .theme-icon-wrap', { settle: 700 });
+    const dark = page.locator('[role="option"], .dropdown-option', { hasText: /深色|Dark/ }).first();
+    if (await dark.count()) await P.clickAt(page, dark, { settle: 2200 });
+
+    await P.smoothScroll(page, 200, { steps: 20 });
+    await page.waitForTimeout(1200);
+
+    await P.clickAt(page, 'ui-prefs-selector .lang-icon-wrap', { settle: 700 });
+    const english = page.locator('[role="option"], .dropdown-option', { hasText: /English/ }).first();
+    if (await english.count()) await P.clickAt(page, english, { settle: 2400 });
+  },
+};
+
+// ────────────────────────────────────────────────────────────────── cleanup
+
+/**
+ * Undo what the previous run left in the database.
+ *
+ * Left in place, last run's listing, order, conversation and waitlist
+ * subscription all show up in this run's footage — a duplicate listing on the
+ * shelf, a "you are already waiting" banner where the shot needs an unpressed
+ * button. Skipped rather than guessed when UNIBOOKS_BE_DIR is unset: this
+ * repository does not sit beside the backend, and a wrong path would report a
+ * cleanup that did nothing.
+ */
 function cleanBackendData() {
-  console.log('\n======================================================');
-  console.log('🧹 正在清理前次錄製時後端產生的測試資料...');
-  console.log('======================================================');
-  if (!BE_DIR) {
-    // Silence would be worse than skipping: the recording would then run
-    // against whatever the previous run left behind, and the video would show
-    // duplicate listings with nothing having reported a problem.
-    console.warn('⚠️  UNIBOOKS_BE_DIR 未設定，略過後端資料清理。');
-    console.warn('    錄製將沿用資料庫現有狀態，畫面可能出現前次遺留的資料。');
+  console.log('\n🧹 Clearing what the last recording left behind…');
+  if (!cfg.BE_DIR) {
+    console.warn('⚠️  UNIBOOKS_BE_DIR is not set, so the cleanup is being skipped.');
+    console.warn('   The recording will run against whatever state the database is in,');
+    console.warn('   and may show leftovers from the previous run.');
     return;
   }
-  try {
-    const cmd = `${BE_PYTHON} manage.py shell -c "
+
+  const script = `
 from listings.models import Listing
 from orders.models import Order
 from messaging.models import Conversation
+from subscriptions.models import Subscription
 from accounts.models import User
 
-user = User.objects.filter(email='${DEMO_EMAIL}').first()
-if user:
-    Order.objects.filter(buyer=user).delete()
-    Order.objects.filter(listing__seller=user).delete()
-    Conversation.objects.filter(buyer=user).delete()
-    Listing.objects.filter(seller=user, book__title__icontains='Effective Java').delete()
-print('Backend test data cleaned!')
-"`;
-    execSync(cmd, { cwd: BE_DIR, stdio: 'inherit' });
-    console.log('✓ 後端測試資料已徹底清除！');
+buyer = User.objects.filter(email=${JSON.stringify(cfg.BUYER.email)}).first()
+if buyer:
+    Order.objects.filter(buyer=buyer).delete()
+    Order.objects.filter(listing__seller=buyer).delete()
+    Conversation.objects.filter(buyer=buyer).delete()
+    # The other side too. Threads where the demo account is the seller are not
+    # created by this script, but they outlive the listings they refer to and
+    # sit in the inbox during the chat scene, still captioned with a book that
+    # is no longer on sale.
+    Conversation.objects.filter(listing__seller=buyer).delete()
+    Listing.objects.filter(seller=buyer, book__title__icontains=${JSON.stringify(cfg.SELL.titleFragment)}).delete()
+    Subscription.objects.filter(user=buyer, book__isbn13=${JSON.stringify(cfg.BUY.waitlistIsbn)}).delete()
+    print('cleaned up after', buyer.email)
+else:
+    print('no such user; nothing to clean')
+`;
+
+  try {
+    execFileSync(cfg.BE_PYTHON, ['manage.py', 'shell', '-c', script], {
+      cwd: cfg.BE_DIR,
+      stdio: 'inherit',
+    });
   } catch (err) {
-    console.warn('Backend cleanup warning:', err.message);
+    console.warn(`⚠️  Cleanup did not complete: ${err.message}`);
   }
 }
 
-// Combine all clips into a master showcase video
-function combineMasterVideo() {
-  console.log('\n======================================================');
-  console.log('🎬 正在將兩段展示合成完整一鏡到底成片...');
-  console.log('======================================================');
-  const part1 = path.join(OUTPUT_DIR, '01_login_and_sell.mp4');
-  const part2 = path.join(OUTPUT_DIR, '02_search_chat_meetup_order.mp4');
-  const master = path.join(OUTPUT_DIR, 'unibooks_master_showcase.mp4');
-  const listFile = path.join(OUTPUT_DIR, 'concat_list.txt');
-
-  if (fs.existsSync(part1) && fs.existsSync(part2)) {
-    fs.writeFileSync(listFile, `file '${part1}'\nfile '${part2}'\n`);
-    execSync(`${FFMPEG} -y -f concat -safe 0 -i "${listFile}" -c copy "${master}"`, { stdio: 'inherit' });
-    if (fs.existsSync(listFile)) fs.unlinkSync(listFile);
-    console.log(`✓ Master成片生成完畢: ${master} (${fs.statSync(master).size} bytes)`);
-  }
-}
+// ───────────────────────────────────────────────────────────────────── main
 
 async function main() {
-  try {
-    cleanBackendData();
-    await recordLoginAndSell();
-    await recordSearchChatMeetupAndOrder();
-    combineMasterVideo();
-    console.log('\n======================================================');
-    console.log('🎉 所有展演短影片已完美錄製並轉檔成功！');
-    console.log(`📁 輸出位置: ${OUTPUT_DIR}`);
-    console.log('======================================================\n');
-  } catch (err) {
-    console.error('Recording failed:', err);
+  cfg.ensureDirs();
+
+  // Shoot everything, or just the scene ids named on the command line.
+  const args = process.argv.slice(2);
+  const requested = args.filter((a) => !a.startsWith('-'));
+  const entries = timeline.entries.filter(
+    (e) => e.kind === 'scene' && (requested.length === 0 || requested.includes(e.id)),
+  );
+
+  if (entries.length === 0 && !args.includes('--clean')) {
+    console.error(`No scenes matched. Known scenes:\n  ${timeline.sceneIds.join('\n  ')}`);
     process.exit(1);
+  }
+
+  // A full run always cleans. Naming scenes does not, because re-shooting one
+  // take should not wipe the state the others were shot against — but then
+  // re-shooting the chat scene four times leaves four identical exchanges
+  // stacked up in the thread, which is what --clean is for.
+  if (requested.length === 0 || args.includes('--clean')) cleanBackendData();
+  if (entries.length === 0) return;
+
+  console.log(`\n🎥 Recording ${entries.length} scene(s) against ${cfg.BASE_URL}`);
+  const browser = await chromium.launch({ headless: true });
+  const results = [];
+  try {
+    for (const entry of entries) {
+      results.push(await shoot(browser, entry));
+    }
+  } finally {
+    await browser.close();
+  }
+
+  // Merge into any manifest already there, so re-shooting one scene does not
+  // discard the takes that were fine.
+  const manifestPath = path.join(cfg.SCENE_DIR, 'scenes.json');
+  const previous = fs.existsSync(manifestPath) ? JSON.parse(fs.readFileSync(manifestPath, 'utf8')) : {};
+  for (const r of results) previous[r.id] = r;
+  fs.writeFileSync(manifestPath, `${JSON.stringify(previous, null, 2)}\n`);
+
+  const failed = results.filter((r) => r.failed);
+  console.log(`\n📁 ${cfg.SCENE_DIR}`);
+  if (failed.length) {
+    console.log(`\n⚠️  ${failed.length} scene(s) failed; their footage is kept but will look wrong:`);
+    for (const f of failed) console.log(`   ${f.id}: ${f.error}`);
+    console.log(`\n   Re-shoot just those with:  npm run record -- ${failed.map((f) => f.id).join(' ')}`);
+  } else {
+    console.log('\n✓ All scenes recorded.');
   }
 }
 
-main();
+main().catch((err) => {
+  console.error('Recording failed:', err);
+  process.exit(1);
+});

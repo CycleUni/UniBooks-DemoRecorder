@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="zh-TW">
+<head>
+  <meta charset="utf-8">
+  <title>UniBooks - 05 Solution</title>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700&family=Noto+Serif+TC:wght@700&display=swap');
+
+    :root {
+      --ink: #1F2933;
+      --ink-soft: #4A555F;
+      --paper: #FFFFFF;
+      --paper-warm: #F7F5F0;
+      --line: #D9D4CB;
+      --line-strong: #948A76;
+      --accent: #1E5C46;
+      --accent-soft: #E7F0EA;
+      --brand-warm: #C8763F;
+      --brand-warm-soft: #FBF0E4;
+      --muted: #647079;
+      --flag: #A34A2A;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      width: 1920px;
+      height: 1080px;
+      overflow: hidden;
+      background-color: var(--paper);
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      padding-left: 200px;
+      position: relative;
+    }
+
+    .top-meta {
+      position: absolute;
+      top: 64px;
+      right: 128px;
+      font-family: 'Noto Sans TC', -apple-system, 'PingFang TC', sans-serif;
+      font-size: 20px;
+      font-weight: 500;
+      color: var(--muted);
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+    }
+
+    .statement-box {
+      display: flex;
+      flex-direction: column;
+      align-items: flex-start;
+    }
+
+    .main-statement {
+      font-family: 'Noto Serif TC', serif;
+      font-weight: 700;
+      font-size: 72px;
+      color: var(--accent);
+      line-height: 1.25;
+      letter-spacing: -0.01em;
+      margin-bottom: 32px;
+      white-space: nowrap;
+    }
+
+    .rule-line {
+      width: 128px;
+      height: 3px;
+      background-color: var(--brand-warm);
+      border-radius: 2px;
+      margin-bottom: 32px;
+    }
+
+    .sub-statement {
+      font-family: 'Noto Sans TC', -apple-system, 'PingFang TC', sans-serif;
+      font-weight: 400;
+      font-size: 36px;
+      color: var(--ink);
+      letter-spacing: 0.04em;
+      line-height: 1.4;
+      white-space: nowrap;
+    }
+  </style>
+</head>
+<body>
+  <div class="top-meta">UniBooks</div>
+  <div class="statement-box">
+    <h1 class="main-statement">同校同學上架，面交自取</h1>
+    <div class="rule-line"></div>
+    <p class="sub-statement">省下的錢，留給下學期</p>
+  </div>
+</body>
+</html>

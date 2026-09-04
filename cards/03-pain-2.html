@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="zh-TW">
+<head>
+  <meta charset="utf-8">
+  <title>UniBooks - 03 Pain 2</title>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700&family=Noto+Serif+TC:wght@700&display=swap');
+
+    :root {
+      --ink: #1F2933;
+      --ink-soft: #4A555F;
+      --paper: #FFFFFF;
+      --paper-warm: #F7F5F0;
+      --line: #D9D4CB;
+      --line-strong: #948A76;
+      --accent: #1E5C46;
+      --accent-soft: #E7F0EA;
+      --brand-warm: #C8763F;
+      --brand-warm-soft: #FBF0E4;
+      --muted: #647079;
+      --flag: #A34A2A;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      width: 1920px;
+      height: 1080px;
+      overflow: hidden;
+      background-color: var(--paper-warm);
+      background-image: repeating-linear-gradient(
+        to bottom,
+        transparent 0 13px,
+        rgba(148, 138, 118, 0.15) 13px 14px
+      );
+      display: flex;
+      align-items: center;
+      padding-left: 240px;
+      padding-right: 240px;
+    }
+
+    .pain-container {
+      display: flex;
+      align-items: stretch;
+      gap: 48px;
+    }
+
+    .flag-bar {
+      width: 8px;
+      background-color: var(--flag);
+      border-radius: 3px;
+      flex-shrink: 0;
+    }
+
+    .content-box {
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      gap: 24px;
+      min-height: 160px;
+    }
+
+    .main-text {
+      font-family: 'Noto Serif TC', serif;
+      font-weight: 700;
+      font-size: 64px;
+      color: var(--ink);
+      line-height: 1.35;
+      letter-spacing: -0.01em;
+      white-space: nowrap;
+    }
+
+    .sub-text {
+      font-family: 'Noto Sans TC', -apple-system, 'PingFang TC', sans-serif;
+      font-weight: 400;
+      font-size: 32px;
+      color: var(--muted);
+      line-height: 1.4;
+      letter-spacing: 0.02em;
+      white-space: nowrap;
+    }
+  </style>
+</head>
+<body>
+  <div class="pain-container">
+    <div class="flag-bar"></div>
+    <div class="content-box">
+      <h1 class="main-text">想賣，只能發在社團裡</h1>
+      <p class="sub-text">等一個不知道會不會來的回覆</p>
+    </div>
+  </div>
+</body>
+</html>

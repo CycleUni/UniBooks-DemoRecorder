@@ -1,0 +1,143 @@
+<!doctype html>
+<html lang="zh-TW">
+<head>
+  <meta charset="utf-8">
+  <title>UniBooks - 01 Brand</title>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700&family=Noto+Serif+TC:wght@700&display=swap');
+
+    :root {
+      --ink: #1F2933;
+      --ink-soft: #4A555F;
+      --paper: #FFFFFF;
+      --paper-warm: #F7F5F0;
+      --line: #D9D4CB;
+      --line-strong: #948A76;
+      --accent: #1E5C46;
+      --accent-soft: #E7F0EA;
+      --brand-warm: #C8763F;
+      --brand-warm-soft: #FBF0E4;
+      --muted: #647079;
+      --flag: #A34A2A;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      width: 1920px;
+      height: 1080px;
+      overflow: hidden;
+      background-color: var(--paper-warm);
+      background-image: repeating-linear-gradient(
+        to bottom,
+        transparent 0 13px,
+        rgba(148, 138, 118, 0.15) 13px 14px
+      );
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      position: relative;
+    }
+
+    .library-tag {
+      position: absolute;
+      top: 64px;
+      right: 64px;
+      width: 240px;
+      background-color: var(--paper);
+      border: 1px solid var(--line-strong);
+      border-radius: 3px;
+      padding: 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    .tag-header {
+      font-family: 'Noto Sans TC', -apple-system, 'PingFang TC', sans-serif;
+      font-size: 13px;
+      font-weight: 700;
+      color: var(--ink-soft);
+      letter-spacing: 0.08em;
+      text-align: center;
+      text-transform: uppercase;
+    }
+
+    .tag-divider {
+      height: 1px;
+      background-color: var(--line);
+    }
+
+    .tag-body {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-family: 'Noto Sans TC', -apple-system, 'PingFang TC', sans-serif;
+      font-size: 12px;
+      font-weight: 500;
+      color: var(--muted);
+      letter-spacing: 0.06em;
+    }
+
+    .tag-code {
+      color: var(--brand-warm);
+      font-weight: 700;
+    }
+
+    .brand-group {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      text-align: center;
+    }
+
+    .brand-title {
+      font-family: 'Noto Serif TC', serif;
+      font-weight: 700;
+      font-size: 112px;
+      color: var(--accent);
+      line-height: 1.1;
+      letter-spacing: -0.01em;
+      margin-bottom: 24px;
+    }
+
+    .brand-subtitle {
+      font-family: 'Noto Sans TC', -apple-system, 'PingFang TC', sans-serif;
+      font-size: 32px;
+      font-weight: 400;
+      color: var(--ink-soft);
+      letter-spacing: 0.08em;
+      line-height: 1.4;
+    }
+
+    .book-edge-line {
+      width: 64px;
+      height: 4px;
+      background-color: var(--brand-warm);
+      border-radius: 2px;
+      margin-top: 32px;
+    }
+  </style>
+</head>
+<body>
+  <div class="library-tag">
+    <div class="tag-header">CAMPUS ARCHIVE</div>
+    <div class="tag-divider"></div>
+    <div class="tag-body">
+      <span>TW</span>
+      <span class="tag-code">UB · 2026</span>
+    </div>
+  </div>
+
+  <div class="brand-group">
+    <h1 class="brand-title">UniBooks</h1>
+    <p class="brand-subtitle">在校園內輕鬆買賣二手書</p>
+    <div class="book-edge-line"></div>
+  </div>
+</body>
+</html>

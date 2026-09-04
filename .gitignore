@@ -4,3 +4,6 @@ node_modules/
 demo_videos/
 .env
 .DS_Store
+
+# Written by scripts/stage-data.js while the load-test fixture is hidden.
+.staged-listings.json
