@@ -606,7 +606,7 @@ const SCENES = {
     await page.waitForTimeout(1200);
     await highlight(
       '.verify-section .alert-box',
-      '校園信箱驗證　　學校身分綁定 .edu.tw 信箱，不是自己填的',
+      '校園信箱驗證　　學校身分綁定 .edu.tw 信箱，確保身分真實性',
       { hold: 3000 },
     );
     await P.moveTo(page, '.verify-section .alert-box p', { steps: 20, settle: 2000 });
@@ -625,7 +625,7 @@ const SCENES = {
     await P.moveTo(page, '.listings-section .section-heading', { steps: 22, settle: 1600 });
     await highlight(
       '.waitlist-banner',
-      '沒人賣的書　　訂閱到貨通知，有人上架就通知你',
+      '沒人賣的書　　訂閱到貨通知，新刊登即時推播通知',
       { hold: 3000 },
     );
     await P.clickAt(page, '.waitlist-banner ui-button button', { settle: 2800 });
@@ -638,7 +638,7 @@ const SCENES = {
     await page.waitForLoadState('networkidle').catch(() => {});
     await mark();
 
-    await highlight('.theme-dropdown', '深色模式　　整站主題，記在這個瀏覽器裡', { hold: 2600 });
+    await highlight('.theme-dropdown', '深色模式　　整站主題，偏好設定自動保存', { hold: 2600 });
     await P.clickAt(page, '.theme-dropdown .theme-icon-wrap', { settle: 700 });
     const dark = page.locator('[role="option"], .dropdown-option', { hasText: /深色|Dark/ }).first();
     if (await dark.count()) await P.clickAt(page, dark, { settle: 2400 });
