@@ -1,7 +1,7 @@
 # UniBooks-DemoRecorder
 
 Records scripted walkthroughs of a **running** UniBooks deployment and cuts
-them, with title cards, into a showcase film.
+them, with title cards, into a showcase film — edited to a music bed.
 
 It drives a real browser with Playwright, overlays a synthetic cursor so the
 interaction reads as deliberate rather than instantaneous, rasterises a set of
@@ -20,7 +20,7 @@ Written to `DEMO_OUTPUT_DIR` (default `./demo_videos`):
 
 | Path | What it is |
 |---|---|
-| `unibooks_showcase.mp4` | The film. 1920×1080, 30fps, silent, about 2:31 |
+| `unibooks_showcase.mp4` | The film. 1920×1080, 30fps, 2:43, with the music bed |
 | `scenes/*.mp4` + `scenes.json` | One take per scene, where each performance starts, and the boxes it asked to highlight |
 | `cards/*.png` | The title cards, rasterised |
 | `overlays/*.png` | Corner badges and highlight boxes, transparent |
@@ -33,6 +33,8 @@ Everything under `demo_videos/` is gitignored and regenerated on every run.
 **`timeline.js` is the edit.** One list of what appears, in what order, for how
 long, and how each piece enters. The recorder reads it to know what to shoot;
 the builder reads it to know how to assemble. Change the film here.
+
+Lengths there are in **bars**, not seconds — see *Cut to the music* below.
 
 **`record.js` shoots the takes.** One browser context per scene, so a scene can
 be re-shot alone and each can be paced separately. Every scene runs a fast,
@@ -77,6 +79,34 @@ Captions get a floor on their time on screen (`MIN_CAPTION_SECONDS`). A hold is
 divided by the speed factor along with everything else, so three seconds of
 resting becomes two seconds of reading at 1.5x — not enough for a sentence.
 
+## Cut to the music
+
+The film is edited to a 115 BPM track with a strict eight-bar phrase structure,
+so `timeline.js` counts in bars and derives the seconds. Every cut lands on a
+bar line by construction rather than by being nudged onto one afterwards, and
+three of the bar counts are set by the track itself:
+
+| Bar | The track | The film |
+|---|---|---|
+| 1 | riser ends, band enters | under the opening card |
+| 33 | drops to a quiet passage | the buyer act opens |
+| 41 | comes back | cut to the book's real seller and price |
+| 73 | begins winding down | the technical card |
+| 78 | silence | end |
+
+The quiet passage is the only place a shot gets to breathe: the search runs
+through it at 1.02x, near real time. That is a consequence of the structure
+rather than a decision made twice.
+
+An earlier pass measured lengths in seconds, and 17 of the 23 cuts landed
+0.3–1.0s off the beat. Against a track this regular that reads worse than
+being nowhere near it.
+
+`DEMO_MUSIC` points at the track; it is **not** in version control, because
+this repository has a licence to use it, not to redistribute it. Without it
+the film is cut silent and `build-video.js` says so. Replacing it with a
+different track means re-deciding the bar counts, not just changing the path.
+
 ## The cards are HTML
 
 `cards/*.html`, rasterised by `render-cards.js`. Two reasons they are not drawn
@@ -108,7 +138,7 @@ screen recording can be crossfaded as two clips of known length.
 ```bash
 npm install
 cp .env.example .env      # every key has a fallback; UNIBOOKS_BE_DIR is the one worth setting
-npm run film              # cards, then takes, then the cut
+npm run film              # cards, takes, overlays, then the cut
 ```
 
 Each step also runs alone, and usually should:

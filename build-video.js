@@ -81,6 +81,8 @@ const NORMALISE = `${GEOMETRY},format=yuv420p`;
 const MIN_CAPTION_SECONDS = 2.4;
 /** Fade in and out of every highlight, so nothing pops. */
 const OVERLAY_FADE = 0.35;
+/** How long the music takes to go out under the closing card. */
+const MUSIC_FADE_OUT = 1.6;
 
 /**
  * Place a recorded highlight on the cut's timeline.
@@ -183,7 +185,7 @@ function buildSceneClip(entry, manifest) {
         ? '  ⚠️  slower than real time; the take is shorter than its slot'
         : '';
   console.log(
-    `  ${entry.id}: ${usable.toFixed(1)}s of footage → ${entry.duration}s ` +
+    `  ${entry.id}: ${usable.toFixed(1)}s of footage → ${entry.bars} bars ` +
       `(${speed.toFixed(2)}x, hint ${entry.speedHint || 1})${note}`,
   );
 
@@ -285,14 +287,35 @@ function assemble(clips) {
   const out = path.join(cfg.OUTPUT_DIR, 'unibooks_showcase.mp4');
   console.log(`\n🎬 Joining ${clips.length} clips (${elapsed.toFixed(1)}s)…`);
 
+  // The music bed, if it is there. The track is longer than the cut by design
+  // — the timeline stops a bar before its final decay — so it is trimmed to
+  // the film and faded rather than looped or stretched.
+  const audio = [];
+  const maps = ['-map', `[${label}]`];
+  if (fs.existsSync(cfg.MUSIC_FILE)) {
+    const musicIndex = clips.length;
+    inputs.push('-i', cfg.MUSIC_FILE);
+    steps.push(
+      `[${musicIndex}:a]atrim=0:${elapsed.toFixed(3)},asetpts=PTS-STARTPTS,` +
+        `afade=t=in:st=0:d=0.4,` +
+        `afade=t=out:st=${(elapsed - MUSIC_FADE_OUT).toFixed(3)}:d=${MUSIC_FADE_OUT}[a]`,
+    );
+    maps.push('-map', '[a]');
+    audio.push('-c:a', 'aac', '-b:a', '192k');
+    console.log(`   with ${path.basename(cfg.MUSIC_FILE)}`);
+  } else {
+    console.log(`   no music at ${cfg.MUSIC_FILE} — cutting silent`);
+  }
+
   encode([
     '-y',
     ...inputs,
     '-filter_complex', steps.join(';'),
-    '-map', `[${label}]`,
+    ...maps,
     '-c:v', 'libx264', '-preset', 'slow', '-crf', '18',
     '-pix_fmt', 'yuv420p',
     '-r', String(FPS),
+    ...audio,
     '-movflags', '+faststart',
     out,
   ]);

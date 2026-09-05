@@ -7,3 +7,6 @@ demo_videos/
 
 # Written by scripts/stage-data.js while the load-test fixture is hidden.
 .staged-listings.json
+
+# The music bed. Licensed for use in the film, not for redistribution.
+*.mp3

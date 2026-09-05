@@ -101,7 +101,10 @@ async function shoot(browser, entry) {
   if (!scene) throw new Error(`timeline.js lists scene "${entry.id}" but record.js has no such scene`);
 
   const budget = (entry.duration * (entry.speedHint || 1)).toFixed(1);
-  console.log(`\n▶ ${entry.id}  (cut ${entry.duration}s · aiming for ~${budget}s of footage)`);
+  console.log(
+    `\n▶ ${entry.id}  (${entry.bars} bars = ${entry.duration.toFixed(1)}s in the cut · ` +
+      `aiming for ~${budget}s of footage)`,
+  );
 
   const context = await browser.newContext({
     viewport: VIEWPORT,
@@ -427,10 +430,25 @@ const SCENES = {
     await page.locator('.step-content.text-center h2').waitFor({ timeout: 30000 });
     await page.waitForTimeout(2800);
 
-    // The claim is that it is on the shelf, so go and look at the shelf.
+    // The claim is that it is on the shelf, so go and look at the shelf —
+    // filtered to the book that was just published.
+    //
+    // The filter is not decoration. The demo account owns the load-test
+    // fixture, and a seller's own listing page has no status filter at all
+    // (accounts/views/profile.py lists user.listings for the region, whatever
+    // state they are in) — so scripts/stage-data.js, which hides the fixture by
+    // marking it removed, cannot reach this page. Without the search the payoff
+    // shot is one real listing above three rows of "Sample Book 1".
     await page.goto(cfg.regionUrl('/account/listings'), { waitUntil: 'domcontentloaded' });
     await page.locator('ui-listing-row').first().waitFor({ timeout: 25000 });
-    await P.restOn(page, 'ui-listing-row', { hold: 3200 });
+    await page.waitForTimeout(600);
+
+    await P.typeInto(page, 'ui-search-bar .search-input', cfg.SELL.titleFragment, {
+      delay: 95,
+      settle: 700,
+    });
+    await P.clickAt(page, 'ui-search-bar .search-btn', { settle: 1600 });
+    await P.restOn(page, 'ui-listing-row', { hold: 3000 });
   },
 
   /**
