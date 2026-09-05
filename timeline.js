@@ -72,10 +72,10 @@ const entries = [
 
   // ── Act one: the seller ─────────────────────────────────────────────────
   { kind: 'card', id: '06-chapter-seller', duration: 4, transition: TRANSITIONS.chapter },
-  { kind: 'scene', id: 's02_sell_isbn', duration: 10, speedHint: 1.4, badge: '賣家視角 · Test User', transition: TRANSITIONS.chapter },
+  { kind: 'scene', id: 's02_sell_isbn', duration: 10, speedHint: 1.5, badge: '賣家視角 · Test User', transition: TRANSITIONS.chapter },
   // Money shot: an ISBN resolving into a real title, author and cover art.
   // Plays at close to real speed or it stops reading as a lookup.
-  { kind: 'scene', id: 's03_sell_autofill', duration: 7, speedHint: 1.15, badge: '賣家視角 · Test User', transition: TRANSITIONS.page },
+  { kind: 'scene', id: 's03_sell_autofill', duration: 8, speedHint: 1.25, badge: '賣家視角 · Test User', transition: TRANSITIONS.page },
   { kind: 'scene', id: 's04_sell_details', duration: 8, speedHint: 1.4, badge: '賣家視角 · Test User', transition: TRANSITIONS.page },
   { kind: 'scene', id: 's05_sell_publish', duration: 9, speedHint: 1.2, badge: '賣家視角 · Test User', transition: TRANSITIONS.page },
 

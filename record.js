@@ -352,9 +352,15 @@ const SCENES = {
     await P.moveTo(page, page.locator('.stepper .step').nth(2), { steps: 14, settle: 900 });
 
     await P.moveTo(page, '.step-content .desc', { steps: 18, settle: 1200 });
-    await P.typeInto(page, '.step-content ui-input input', cfg.SELL.isbn, { delay: 130, settle: 1400 });
-    await P.clickAt(page, page.locator('ui-button button', { hasText: /搜尋書目|Search/ }).first(), {
-      settle: 2600,
+    await P.typeInto(page, '.step-content ui-input input', cfg.SELL.isbn, { delay: 130, settle: 1600 });
+
+    // Stops with the cursor on the button, without pressing it. The press
+    // belongs to the next shot, which is the one about what the lookup returns
+    // — doing it here as well put "搜尋書目" in the cut twice, once at the end
+    // of this take and once at the start of that one.
+    await P.moveTo(page, page.locator('ui-button button', { hasText: /搜尋書目|Search/ }).first(), {
+      steps: 18,
+      settle: 1800,
     });
   },
 
@@ -374,8 +380,13 @@ const SCENES = {
 
     await P.clickAt(page, 'button.book-match.selectable', { settle: 1600 });
     // Rest on the filled-in title and cover: this is the assertion the shot is
-    // making, so the cut should end looking straight at it.
-    await P.restOn(page, '.book-match .book-title-serif', { hold: 3000 });
+    // making, so it gets the beat before anything moves on.
+    await P.restOn(page, '.book-match .book-title-serif', { hold: 2600 });
+
+    // Then actually advance the wizard. Ending on the preview and letting the
+    // next shot open at step two left the press to be inferred from a wipe,
+    // and it read as a step the film had skipped.
+    await P.clickAt(page, '.actions ui-button button', { settle: 1600 });
   },
 
   /** Condition, course, professor — the campus-specific metadata. */
